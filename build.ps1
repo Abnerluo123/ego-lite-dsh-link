@@ -36,20 +36,15 @@ try {
         Write-Host "built $($target.Name)"
     }
 
-    # Lite build: Ego Lite only, 12 tools, no accessibility tree by default.
-    Push-Location (Join-Path $PSScriptRoot "lite")
-    try {
-        foreach ($target in $targets) {
-            $env:GOOS = $target.GOOS
-            $env:GOARCH = $target.GOARCH
-            $name = "zero-ego-lite-" + ($target.Name -replace '^zero-ego-', '')
-            & $GoExe build -trimpath -ldflags "-s -w" -o (Join-Path $OutDir $name) .
-            if ($LASTEXITCODE -ne 0) { throw "lite build failed for $($target.GOOS)/$($target.GOARCH)" }
-            Write-Host "built $name"
-        }
-    }
-    finally {
-        Pop-Location
+    # Ego-native build: same 49 tools, tuned for the official ego-browser skill
+    # (brief results by default, auto-follow new tabs). Not a reduced feature set.
+    foreach ($target in $targets) {
+        $env:GOOS = $target.GOOS
+        $env:GOARCH = $target.GOARCH
+        $name = "zero-ego-lite-" + ($target.Name -replace '^zero-ego-', '')
+        & $GoExe build -trimpath -tags egoonly -ldflags "-s -w" -o (Join-Path $OutDir $name) .
+        if ($LASTEXITCODE -ne 0) { throw "ego-native build failed for $($target.GOOS)/$($target.GOARCH)" }
+        Write-Host "built $name"
     }
 }
 finally {

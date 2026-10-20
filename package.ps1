@@ -1,6 +1,6 @@
 # Packs two release archives: full (49 tools) and lite (12 tools).
 param(
-    [string]$Version = "1.2.0",
+    [string]$Version = "1.3.0",
     [string]$OutDir = "$PSScriptRoot\dist"
 )
 
@@ -33,16 +33,12 @@ Get-ChildItem (Join-Path $PSScriptRoot "dist") -File |
     Copy-Item -Destination $full -Force
 Compress-Stage $full (Join-Path $OutDir "zero-ego-$Version.zip")
 
-# ---------- lite ----------
+# ---------- Ego-native build (same source, -tags egoonly) ----------
 $lite = New-Stage "lite"
-foreach ($file in @("install.ps1", "install.sh", "LICENSE")) {
+foreach ($file in @("install.ps1", "install.sh", "LICENSE", "main.go", "egoonly.go", "general.go", "go.mod")) {
     Copy-Item (Join-Path $PSScriptRoot $file) (Join-Path $lite $file) -Force
 }
-if (Test-Path (Join-Path $PSScriptRoot "lite\README.md")) {
-    Copy-Item (Join-Path $PSScriptRoot "lite\README.md") (Join-Path $lite "README.md") -Force
-}
-Copy-Item (Join-Path $PSScriptRoot "lite\main.go") (Join-Path $lite "main.go") -Force
-Copy-Item (Join-Path $PSScriptRoot "lite\go.mod") (Join-Path $lite "go.mod") -Force
+Copy-Item (Join-Path $PSScriptRoot "README.lite.md") (Join-Path $lite "README.md") -Force
 Get-ChildItem (Join-Path $PSScriptRoot "dist") -File |
     Where-Object { $_.Name -like "zero-ego-lite-*" -and $_.Extension -ne ".zip" } |
     Copy-Item -Destination $lite -Force

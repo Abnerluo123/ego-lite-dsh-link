@@ -1,4 +1,4 @@
-// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
+﻿// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
 // fixed set of browser tools for Ego Lite to DeepSeek Harness.
 //
 // It compiles to a single self-contained binary: no runtime, no dependencies.
@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.2.0"
+	serverVersion = "1.3.0"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -2095,6 +2095,11 @@ func writeResponse(w *bufio.Writer, resp *response) {
 
 func main() {
 	s := &server{autoSwitch: true}
+	// Ego-native build: actions stay small by default, matching the official
+	// skill's "inspect, then act" flow. Callers can still ask for the tree.
+	if egoOnly {
+		s.brief = true
+	}
 	if path := strings.TrimSpace(os.Getenv("EGO_DSH_LOG")); path != "" {
 		if abs, err := filepath.Abs(path); err == nil {
 			s.logPath = abs

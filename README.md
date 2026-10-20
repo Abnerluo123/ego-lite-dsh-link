@@ -21,16 +21,18 @@ Agent 直接调用 `mcp__ego_lite__*` 工具开网页、点击、填写、读页
 - 网络抓包、页面状态读取、上传下载、多标签自动跟随
 - `ego_lite_run` 是逃生舱：`page.evaluate()`、`page.cdp()` 等都能直接写
 
-## 两个版本
+## 两个构建
 
-| | main | lite 分支 |
+同一份代码，两个构建标签，**工具完全一样（49 个）**，区别只在默认输出：
+
+| | 通用版 | Ego 原生版（`-tags egoonly`） |
 | --- | --- | --- |
-| 工具 | 49 | 16 |
-| 动作返回 | 可访问性树 | 仅 page/url/title |
-| 二进制 | 3.28 MB | 3.02 MB |
-| 适合 | 全功能（抓包、上传下载、多空间） | 日常开网页/点/填/读，最省 token |
+| 工具 | 49 | **49**（同一个工具集） |
+| 动作默认返回 | 可访问性树 | `page/url/title` |
+| 面向 | 通用浏览器自动化，后续接 Edge/CDP | **只面向 Ego Lite 与官方 skill** |
+| 二进制 | 3.3 MB | 3.0 MB |
 
-lite 的 16 个工具：`open` `snapshot` `click` `fill` `press` `eval` `wait` `scroll` `upload` `dialog` `download` `tabs` `switch` `screenshot` `run` `finish`；其余 API 仍可通过 `run` 调用。
+Ego 原生版不是阉割版：上传、下载、弹窗、网络抓包、页面状态、多标签、`run` 全都在，只是默认不吐整棵树，更贴近官方 skill 的“先看再动”，也更省 token。需要元素 refs 时调 `ego_lite_snapshot` 或 `ego_lite_output(brief:"false")`。
 
 ## 实测笔记（30 个站点）
 
