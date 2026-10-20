@@ -15,6 +15,10 @@ $ErrorActionPreference = "Stop"
 
 if (-not $Binary) {
     $Binary = Join-Path $PSScriptRoot "dist\ego-browser-dsh-windows-amd64.exe"
+    if (-not (Test-Path $Binary)) {
+        # Release zip puts the binaries next to this script.
+        $Binary = Join-Path $PSScriptRoot "ego-browser-dsh-windows-amd64.exe"
+    }
 }
 if (-not (Test-Path $Binary)) {
     throw "connector binary not found: $Binary (run build.ps1 first)"
