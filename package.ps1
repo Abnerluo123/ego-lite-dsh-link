@@ -1,6 +1,6 @@
 # Packs the connector into a redistributable zip.
 param(
-    [string]$Version = "1.9.1",
+    [string]$Version = "2.0.0",
     [string]$OutDir = "$PSScriptRoot\dist"
 )
 
