@@ -500,15 +500,21 @@ def network_stop(filter_text: str, limit: str) -> dict:
 def read_state(path: str, max_chars: str) -> dict:
     path = path.strip() or "__INITIAL_STATE__"
     limit = int_arg("maxChars", max_chars, 200, 200000) if max_chars else 20000
+    fn = """(path) => {
+        const parts = path.split('.');
+        let cur = window;
+        for (const k of parts) { cur = cur == null ? undefined : cur[k]; }
+        if (cur === undefined) return { found: false };
+        let json;
+        try { json = JSON.stringify(cur); } catch (e) { json = String(cur); }
+        if (json === undefined) json = 'null';
+        return { found: true, length: json.length, json: json };
+    }"""
     script = (
         page_prefix()
-        + f"const path={quote(path)};"
-        + "const parts=path.split('.');let cur=window;"
-        + "for (const k of parts) { cur = cur==null?undefined:cur[k]; }"
-        + "if (cur===undefined) return {found:false,path};"
-        + "let json;try{json=JSON.stringify(cur);}catch(e){json=String(cur);}"
-        + "if (json===undefined) json='null';"
-        + f"return {{found:true,path,length:json.length,json:json.slice(0,{limit})}};"
+        + f"const out=await page.evaluate({fn},{quote(path)});"
+        + f"if(!out.found) return {{found:false,path:{quote(path)}}};"
+        + f"return {{found:true,path:{quote(path)},length:out.length,json:out.json.slice(0,{limit})}};"
     )
     return run(script, 60.0)
 

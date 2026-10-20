@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.9.0"
+	serverVersion = "1.9.1"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -1553,14 +1553,21 @@ func (s *server) readState(rawPath, rawMax string) (any, error) {
 			return nil, err
 		}
 	}
+	// window only exists in the page, so the lookup has to run inside evaluate.
+	fn := `(path) => {
+		const parts = path.split('.');
+		let cur = window;
+		for (const k of parts) { cur = cur == null ? undefined : cur[k]; }
+		if (cur === undefined) return { found: false };
+		let json;
+		try { json = JSON.stringify(cur); } catch (e) { json = String(cur); }
+		if (json === undefined) json = 'null';
+		return { found: true, length: json.length, json: json };
+	}`
 	script := s.pagePrefix() +
-		"const path=" + quote(path) + ";" +
-		"const parts=path.split('.'); let cur=window;" +
-		"for (const k of parts) { cur = cur==null ? undefined : cur[k]; }" +
-		"if (cur===undefined) return {found:false,path};" +
-		"let json; try { json=JSON.stringify(cur); } catch(e) { json=String(cur); }" +
-		"if (json===undefined) json='null';" +
-		"return {found:true,path,length:json.length,json:json.slice(0," + strconv.Itoa(maxChars) + ")};"
+		"const out=await page.evaluate(" + fn + "," + quote(path) + ");" +
+		"if(!out.found) return {found:false,path:" + quote(path) + "};" +
+		"return {found:true,path:" + quote(path) + ",length:out.length,json:out.json.slice(0," + strconv.Itoa(maxChars) + ")};"
 	return s.run(script, 60*time.Second)
 }
 

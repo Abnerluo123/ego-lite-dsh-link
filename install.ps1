@@ -7,7 +7,7 @@ param(
     [string]$EgoCli = "",
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "ego-dsh-link"),
     [string]$Binary = "",
-    [string]$Version = "1.9.0",
+    [string]$Version = "1.9.1",
     [switch]$ApplyProfile
 )
 
