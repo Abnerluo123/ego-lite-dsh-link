@@ -96,7 +96,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(response["result"]["protocolVersion"], "2026-07-28")
         listed = handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         names = {tool["name"] for tool in listed["result"]["tools"]}
-        self.assertEqual(len(names), 47)
+        self.assertEqual(len(names), 49)
         for want in ("ego_lite_run", "ego_lite_network_start", "ego_lite_state", "ego_lite_output"):
             self.assertIn(want, names)
 

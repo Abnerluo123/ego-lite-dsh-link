@@ -35,6 +35,22 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "go build failed for $($target.GOOS)/$($target.GOARCH)" }
         Write-Host "built $($target.Name)"
     }
+
+    # Lite build: Ego Lite only, 12 tools, no accessibility tree by default.
+    Push-Location (Join-Path $PSScriptRoot "lite")
+    try {
+        foreach ($target in $targets) {
+            $env:GOOS = $target.GOOS
+            $env:GOARCH = $target.GOARCH
+            $name = "ego-dsh-lite-" + ($target.Name -replace '^ego-browser-dsh-', '')
+            & $GoExe build -trimpath -ldflags "-s -w" -o (Join-Path $OutDir $name) .
+            if ($LASTEXITCODE -ne 0) { throw "lite build failed for $($target.GOOS)/$($target.GOARCH)" }
+            Write-Host "built $name"
+        }
+    }
+    finally {
+        Pop-Location
+    }
 }
 finally {
     Pop-Location

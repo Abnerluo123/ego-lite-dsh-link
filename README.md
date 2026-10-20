@@ -25,6 +25,18 @@
 
 更完整的安装步骤见 [AGENTS.md](AGENTS.md)，它就是写给 Agent 看的。
 
+## 两个版本
+
+| | 完整版（main） | Lite 版（`lite` 分支） |
+| --- | --- | --- |
+| 工具数 | 49 | 12 |
+| 动作返回 | 可访问性树（可用 `brief` 关掉） | 只有 `page/url/title` |
+| 典型 token | 几百到几千 | 几十 |
+| 二进制 | 3.2–3.3 MB | 2.8–3.0 MB |
+| 适用 | 网络抓包、上传下载、多空间、通用能力 | 只想让 Agent 开网页、点、填、读 |
+
+Lite 保留 `run` 作为逃生舱，能力不会丢，只是默认更省。`build.ps1` 会同时产出 `ego-dsh-lite-*`。
+
 ## 能用上 Ego 的哪些能力
 
 `ego_lite_run` 是完整逃生舱：它把 `task`（当前任务空间）和 `page`（当前页）放进作用域，再执行你给的任意脚本，因此 Ego Lite 文档里的 API 都能用——`page.evaluate()`、`page.cdp()`、上传 `setInputFiles`、下载 `waitForEvent("download")`、多标签页、鼠标键盘、各种 wait。

@@ -240,6 +240,25 @@ def wait_load(state: str) -> dict:
     return run_state(page_prefix() + f"await page.waitForLoadState({quote(state)});" + state_body(), 120.0)
 
 
+def task_cdp(method: str, params: str) -> object:
+    if len(method) < 3 or "." not in method:
+        raise ValueError("method must look like Target.getTargets")
+    raw = params.strip() or "{}"
+    if not isinstance(json.loads(raw), dict):
+        raise ValueError("params must be a JSON object")
+    return run("const task=await taskSpace(" + quote(TASK or "") + ");" + f"return await task.cdp({quote(method)},{raw});", 120.0)
+
+
+def wait_control(timeout_ms: str) -> dict:
+    timeout = int_arg("timeoutMs", timeout_ms, 100, 300000) if timeout_ms else 30000
+    script = (
+        "const task=await taskSpace(" + quote(TASK or "") + ");"
+        + f"await task.waitForControl({{timeout:{timeout}}});"
+        + f"return {{status:'control', page:{quote(active_page())}}};"
+    )
+    return run(script, timeout / 1000 + 30)
+
+
 def pages() -> dict:
     value = run("const pages=await task.pages();return pages.map(p=>p.label);", 30.0)
     return {"pages": value, "current": active_page()}
@@ -680,6 +699,8 @@ TOOLS = [
     ("ego_lite_reload", "Reload the active page.", {}, [], reload_page),
     ("ego_lite_wait_load", "Wait for a load state on the active page.", {"state": "string"}, [], wait_load),
     ("ego_lite_pages", "List the managed page labels.", {}, [], pages),
+    ("ego_lite_task_cdp", "Browser-level CDP via the task space.", {"method": "string", "params": "string"}, ["method"], task_cdp),
+    ("ego_lite_wait_control", "Wait until the agent regains control.", {"timeoutMs": "integer"}, [], wait_control),
     ("ego_lite_page_info", "Return page identity and layout info.", {}, [], page_info),
     ("ego_lite_click", "Click one ref or selector.", {"selector": "string"}, ["selector"], click),
     ("ego_lite_dblclick", "Double-click one element.", {"selector": "string"}, ["selector"], dblclick),

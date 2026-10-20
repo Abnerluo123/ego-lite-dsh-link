@@ -1,4 +1,4 @@
-﻿// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
+// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
 // fixed set of browser tools for Ego Lite to DeepSeek Harness.
 //
 // It compiles to a single self-contained binary: no runtime, no dependencies.
@@ -548,6 +548,30 @@ var tools = []tool{
 		properties:  map[string]any{},
 		handler: func(s *server, _ map[string]string) (any, error) {
 			return s.pages()
+		},
+	},
+	{
+		name: "ego_lite_task_cdp",
+		description: "Call a browser-level CDP method through the TaskSpace (Target.*, Browser.*), " +
+			"for things page-level CDP cannot do.",
+		properties: map[string]any{
+			"method": map[string]any{"type": "string", "minLength": 3, "maxLength": 200},
+			"params": map[string]any{"type": "string", "maxLength": 8000},
+		},
+		required: []string{"method"},
+		handler: func(s *server, a map[string]string) (any, error) {
+			return s.taskCDP(a["method"], a["params"])
+		},
+	},
+	{
+		name: "ego_lite_wait_control",
+		description: "Wait until this agent gets control of the task space back (e.g. after the user acted). " +
+			"Times out instead of hanging forever.",
+		properties: map[string]any{
+			"timeoutMs": map[string]any{"type": "integer", "minimum": 100, "maximum": 300000},
+		},
+		handler: func(s *server, a map[string]string) (any, error) {
+			return s.waitControl(a["timeoutMs"])
 		},
 	},
 	{
@@ -1233,6 +1257,37 @@ func (s *server) waitLoad(state string) (any, error) {
 	}
 	body := s.pagePrefix() + "await page.waitForLoadState(" + quote(state) + ");" + s.stateBody(s.activePage())
 	return s.runState(body, 120*time.Second)
+}
+
+func (s *server) taskCDP(method, rawParams string) (any, error) {
+	if len(method) < 3 || !strings.Contains(method, ".") {
+		return nil, errors.New("method must look like Target.getTargets")
+	}
+	params := strings.TrimSpace(rawParams)
+	if params == "" {
+		params = "{}"
+	}
+	var probe map[string]any
+	if err := json.Unmarshal([]byte(params), &probe); err != nil {
+		return nil, errors.New("params must be a JSON object")
+	}
+	script := "const task=await taskSpace(" + quote(s.taskName) + ");" +
+		"return await task.cdp(" + quote(method) + "," + params + ");"
+	return s.run(script, 120*time.Second)
+}
+
+func (s *server) waitControl(rawTimeout string) (any, error) {
+	timeout := 30000
+	var err error
+	if rawTimeout != "" {
+		if timeout, err = intArg("timeoutMs", rawTimeout, 100, 300000); err != nil {
+			return nil, err
+		}
+	}
+	script := "const task=await taskSpace(" + quote(s.taskName) + ");" +
+		"await task.waitForControl({timeout:" + strconv.Itoa(timeout) + "});" +
+		"return {status:'control', page:" + quote(s.activePage()) + "};"
+	return s.run(script, time.Duration(timeout)*time.Millisecond+30*time.Second)
 }
 
 func (s *server) pages() (any, error) {
