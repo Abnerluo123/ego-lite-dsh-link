@@ -7,17 +7,17 @@ param(
     [string]$EgoCli = "",
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "ego-dsh-link"),
     [string]$Binary = "",
-    [string]$Version = "2.0.0",
+    [string]$Version = "1.1.0",
     [switch]$ApplyProfile
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not $Binary) {
-    $Binary = Join-Path $PSScriptRoot "dist\ego-browser-dsh-windows-amd64.exe"
+    $Binary = Join-Path $PSScriptRoot "dist\zero-ego-windows-amd64.exe"
     if (-not (Test-Path $Binary)) {
         # Release zip puts the binaries next to this script.
-        $Binary = Join-Path $PSScriptRoot "ego-browser-dsh-windows-amd64.exe"
+        $Binary = Join-Path $PSScriptRoot "zero-ego-windows-amd64.exe"
     }
 }
 if (-not (Test-Path $Binary)) {
@@ -39,7 +39,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 # Versioned file name: overwriting a running image fails on Windows with a lock,
 # and the copy would silently keep the old build. A new name sidesteps the lock
 # and makes it obvious which build is installed.
-$target = Join-Path $InstallDir "ego-browser-dsh-$Version.exe"
+$target = Join-Path $InstallDir "zero-ego-$Version.exe"
 
 Get-Process -Name "ego-browser-dsh" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Copy-Item $Binary $target -Force

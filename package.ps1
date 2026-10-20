@@ -1,6 +1,6 @@
 # Packs the connector into a redistributable zip.
 param(
-    [string]$Version = "2.0.0",
+    [string]$Version = "1.1.0",
     [string]$OutDir = "$PSScriptRoot\dist"
 )
 
@@ -25,7 +25,7 @@ Get-ChildItem (Join-Path $PSScriptRoot "dist") -File |
     Where-Object { $_.Name -like "ego-browser-dsh-*" -and $_.Extension -ne ".zip" } |
     Copy-Item -Destination $stage -Force
 
-$zip = Join-Path $OutDir "ego-browser-dsh-link-$Version.zip"
+$zip = Join-Path $OutDir "zero-ego-$Version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal
 Remove-Item $stage -Recurse -Force

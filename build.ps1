@@ -16,12 +16,12 @@ New-Item -ItemType Directory -Force -Path $env:GOCACHE, $env:GOTMPDIR | Out-Null
 
 $env:CGO_ENABLED = "0"
 $targets = @(
-    @{ GOOS = "windows"; GOARCH = "amd64"; Name = "ego-browser-dsh-windows-amd64.exe" },
-    @{ GOOS = "windows"; GOARCH = "arm64"; Name = "ego-browser-dsh-windows-arm64.exe" },
-    @{ GOOS = "darwin";  GOARCH = "arm64"; Name = "ego-browser-dsh-darwin-arm64" },
-    @{ GOOS = "darwin";  GOARCH = "amd64"; Name = "ego-browser-dsh-darwin-amd64" },
-    @{ GOOS = "linux";   GOARCH = "amd64"; Name = "ego-browser-dsh-linux-amd64" },
-    @{ GOOS = "linux";   GOARCH = "arm64"; Name = "ego-browser-dsh-linux-arm64" }
+    @{ GOOS = "windows"; GOARCH = "amd64"; Name = "zero-ego-windows-amd64.exe" },
+    @{ GOOS = "windows"; GOARCH = "arm64"; Name = "zero-ego-windows-arm64.exe" },
+    @{ GOOS = "darwin";  GOARCH = "arm64"; Name = "zero-ego-darwin-arm64" },
+    @{ GOOS = "darwin";  GOARCH = "amd64"; Name = "zero-ego-darwin-amd64" },
+    @{ GOOS = "linux";   GOARCH = "amd64"; Name = "zero-ego-linux-amd64" },
+    @{ GOOS = "linux";   GOARCH = "arm64"; Name = "zero-ego-linux-arm64" }
 )
 
 Push-Location $PSScriptRoot
@@ -42,7 +42,7 @@ try {
         foreach ($target in $targets) {
             $env:GOOS = $target.GOOS
             $env:GOARCH = $target.GOARCH
-            $name = "ego-dsh-lite-" + ($target.Name -replace '^ego-browser-dsh-', '')
+            $name = "zero-ego-lite-" + ($target.Name -replace '^zero-ego-', '')
             & $GoExe build -trimpath -ldflags "-s -w" -o (Join-Path $OutDir $name) .
             if ($LASTEXITCODE -ne 0) { throw "lite build failed for $($target.GOOS)/$($target.GOARCH)" }
             Write-Host "built $name"
