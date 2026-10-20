@@ -10,7 +10,7 @@ can hand it to an agent and say one sentence:
 ## What the agent should do
 
 1. **Pick the binary** for the current OS/arch from this folder (or `dist/`):
-   `ego-browser-dsh-windows-amd64.exe`, `-windows-arm64.exe`, `-darwin-arm64`,
+   `zero-ego-windows-amd64.exe`, `-windows-arm64.exe`, `-darwin-arm64`,
    `-darwin-amd64`, `-linux-amd64`, `-linux-arm64`.
 2. **Install it outside the DSH workspace.** On Windows use
    `install.ps1 -ApplyProfile`; on macOS/Linux use `./install.sh --apply`.
@@ -19,7 +19,7 @@ can hand it to an agent and say one sentence:
    `Failed to connect to ego_cli bootstrap`.
 3. **Find `ego-browser`** (usually `~/.local/share/ego/active_version_dir/`) and
    pass it with `-EgoCli` / `--ego` if auto-detection fails.
-4. **Verify**: after the profile reloads, `tools/list` should show 47
+4. **Verify**: after the profile reloads, `tools/list` should show 49
    `ego_lite_*` tools; `ego_lite_start` should return a `spaceId`.
 5. **Record** the install path and how to remove it: delete the `mcp-ego-lite`
    `insert` item from the profile patch.
@@ -33,7 +33,7 @@ can hand it to an agent and say one sentence:
       config:
         serverName: ego_lite
         transport: stdio
-        command: "<install-dir>/ego-browser-dsh.exe"
+        command: "<install-dir>/zero-ego.exe"
         cwd: "<install-dir>"
         env:
           EGO_BROWSER_CLI: "<path to ego-browser>"

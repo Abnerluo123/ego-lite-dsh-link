@@ -25,9 +25,20 @@ Agent 直接调用 `mcp__ego_lite__*` 工具开网页、点击、填写、读页
 
 | | main | lite 分支 |
 | --- | --- | --- |
-| 工具 | 49 | 12 |
+| 工具 | 49 | 16 |
 | 动作返回 | 可访问性树 | 仅 page/url/title |
 | 二进制 | 3.28 MB | 3.02 MB |
+| 适合 | 全功能（抓包、上传下载、多空间） | 日常开网页/点/填/读，最省 token |
+
+lite 的 16 个工具：`open` `snapshot` `click` `fill` `press` `eval` `wait` `scroll` `upload` `dialog` `download` `tabs` `switch` `screenshot` `run` `finish`；其余 API 仍可通过 `run` 调用。
+
+## 实测笔记（30 个站点）
+
+- 30 个常见站点全部可加载（Bing / GitHub / Wikipedia / YouTube / B 站 / 淘宝 / BBC / NYT …），SPA 站点 `readyState` 常停在 `interactive`，属正常。
+- 上传空文件、滚动、拖拽、下载（GitHub Release 资产）、弹窗、多标签、iframe 均验证通过。
+- **防粘贴**：站点 `preventDefault` 掉 paste 时，用 `keyboard.insertText` 可绕过（已实测 blocked=true、值仍写入）。
+- `wait_event` 的等待与触发必须在同一次调用（每次 CLI 调用是新进程），所以它带 `selector` 参数；Ego 只支持 popup/download 两种事件。
+- 验证发现并修复：`fetch` 曾在 Node 上下文读 `document`、`wait_event` 的 popup adopt 用错 handle、`state` 未走 `page.evaluate`。
 
 ## 构建
 

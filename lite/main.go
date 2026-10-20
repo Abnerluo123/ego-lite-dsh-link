@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -185,6 +186,54 @@ var tools = []tool{
 				timeout = parsed
 			}
 			return action("await page.waitForSelector("+q(a["selector"])+",{state:'visible',timeout:"+strconv.Itoa(timeout)+"});", time.Duration(timeout)*time.Millisecond+60*time.Second)
+		}},
+	{"scroll", "Scroll the wheel by dy pixels (negative scrolls up).", map[string]any{"dy": map[string]any{"type": "integer"}, "x": map[string]any{"type": "integer"}, "y": map[string]any{"type": "integer"}}, []string{"dy"},
+		func(a map[string]string) (any, error) {
+			dy, err := strconv.Atoi(a["dy"])
+			if err != nil || dy < -20000 || dy > 20000 {
+				return nil, errors.New("dy must be -20000..20000")
+			}
+			x, y := 500, 500
+			if a["x"] != "" { x, _ = strconv.Atoi(a["x"]) }
+			if a["y"] != "" { y, _ = strconv.Atoi(a["y"]) }
+			return action("await page.mouse.move("+strconv.Itoa(x)+","+strconv.Itoa(y)+");await page.mouse.wheel(0,"+strconv.Itoa(dy)+");", 60*time.Second)
+		}},
+	{"upload", "Set files on a file input; paths are absolute, one per line.", map[string]any{"selector": map[string]any{"type": "string"}, "paths": map[string]any{"type": "string"}}, []string{"selector", "paths"},
+		func(a map[string]string) (any, error) {
+			lines := strings.Split(a["paths"], "\n")
+			files := make([]string, 0, len(lines))
+			for _, line := range lines {
+				item := strings.TrimSpace(line)
+				if item == "" { continue }
+				abs, err := filepath.Abs(item)
+				if err != nil { return nil, err }
+				if _, err := os.Stat(abs); err != nil { return nil, errors.New("file not found: " + abs) }
+				files = append(files, filepath.ToSlash(abs))
+			}
+			if len(files) == 0 { return nil, errors.New("paths must contain at least one file") }
+			encoded, _ := json.Marshal(files)
+			return action("await page.setInputFiles("+q(a["selector"])+","+string(encoded)+");", 120*time.Second)
+		}},
+	{"dialog", "Accept or dismiss the open JS dialog.", map[string]any{"action": map[string]any{"type": "string"}, "text": map[string]any{"type": "string"}}, []string{"action"},
+		func(a map[string]string) (any, error) {
+			if a["action"] == "accept" {
+				return action("await page.acceptDialog("+q(a["text"])+");", 60*time.Second)
+			}
+			if a["action"] == "dismiss" {
+				return action("await page.dismissDialog();", 60*time.Second)
+			}
+			return nil, errors.New("action must be accept or dismiss")
+		}},
+	{"download", "Click a selector that starts a download and save it to saveAs (absolute path).", map[string]any{"selector": map[string]any{"type": "string"}, "saveAs": map[string]any{"type": "string"}}, []string{"selector", "saveAs"},
+		func(a map[string]string) (any, error) {
+			path := strings.TrimSpace(a["saveAs"])
+			if path == "" { return nil, errors.New("saveAs is required") }
+			abs, err := filepath.Abs(path)
+			if err != nil { return nil, err }
+			body := "const dlPromise=page.waitForEvent('download',{timeout:60000});" +
+				"await page.click(" + q(a["selector"]) + ");" +
+				"const dl=await dlPromise;await dl.saveAs(" + q(filepath.ToSlash(abs)) + ");return {path:" + q(filepath.ToSlash(abs)) + ",filename:dl.suggestedFilename()};"
+			return run(prefix()+body, 120*time.Second)
 		}},
 	{"tabs", "List tabs in the task space.", map[string]any{}, nil,
 		func(map[string]string) (any, error) {

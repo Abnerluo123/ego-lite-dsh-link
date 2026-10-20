@@ -1,4 +1,4 @@
-﻿// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
+// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
 // fixed set of browser tools for Ego Lite to DeepSeek Harness.
 //
 // It compiles to a single self-contained binary: no runtime, no dependencies.
@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.1.0"
+	serverVersion = "1.2.0"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -797,16 +797,17 @@ var tools = []tool{
 	},
 	{
 		name: "ego_lite_wait_event",
-		description: "Arm a page event wait and return when it fires: download, popup, dialog, or filechooser. " +
-			"For downloads, saveAs is required.",
+		description: "Arm a page event wait, optionally click a selector to trigger it, then return when it fires. " +
+			"Ego supports the popup and download events; downloads need saveAs.",
 		properties: map[string]any{
-			"event":     map[string]any{"type": "string", "enum": []string{"download", "popup", "dialog", "filechooser"}},
+			"event":     map[string]any{"type": "string", "enum": []string{"download", "popup"}},
+			"selector":  map[string]any{"type": "string", "maxLength": 512},
 			"saveAs":    map[string]any{"type": "string", "maxLength": 1024},
 			"timeoutMs": map[string]any{"type": "integer", "minimum": 100, "maximum": 300000},
 		},
 		required: []string{"event"},
 		handler: func(s *server, a map[string]string) (any, error) {
-			return s.waitEvent(a["event"], a["saveAs"], a["timeoutMs"])
+			return s.waitEvent(a["event"], a["selector"], a["saveAs"], a["timeoutMs"])
 		},
 	},
 	{
@@ -1494,16 +1495,22 @@ func (s *server) fetch(rawURL, method, body, rawHeaders, credentials, csrf strin
 		return nil, errors.New("csrf is injected automatically; omit it")
 	}
 
-	// Many endpoints need the site's csrf token in the body. Read it from the
-	// cookie (bili_jct) and append when the caller supplies a form body without it.
+	// The whole request runs inside the page: cookies, CSRF and CORS all apply
+	// there, and `document` only exists in the page context.
+	optsJSON := "{" + strings.Join(opts, ",") + "}"
+	fn := `async (args) => {
+		const cookie = document.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('bili_jct='));
+		const csrf = cookie ? cookie.slice(9) : '';
+		const opts = { ...args.opts };
+		if (opts.body && csrf && !/csrf=/.test(opts.body)) { opts.body = opts.body + '&csrf=' + csrf; }
+		const res = await fetch(args.url, opts);
+		const text = await res.text();
+		let parsed = null;
+		try { parsed = JSON.parse(text); } catch (e) {}
+		return { ok: res.ok, status: res.status, url: res.url, json: parsed, body: parsed ? undefined : text.slice(0, 100000) };
+	}`
 	script := s.pagePrefix() +
-		"const csrfCookie=(document.cookie.split(';').map(c=>c.trim()).find(c=>c.startsWith('bili_jct='))||'').slice(9);" +
-		"let opts={" + strings.Join(opts, ",") + "};" +
-		"if (opts.body && csrfCookie && !/csrf=/.test(opts.body)) { opts.body = opts.body + '&csrf=' + csrfCookie; }" +
-		"const res=await page.fetch(" + quote(url) + ",opts);" +
-		"const text=(res.body||'');" +
-		"let parsed=null; try{parsed=JSON.parse(text);}catch(e){}" +
-		"return {ok:res.ok,status:res.status,url:res.url,json:parsed,body:(parsed?undefined:text.slice(0,100000))};"
+		"return await page.evaluate(" + fn + ",{url:" + quote(url) + ",opts:" + optsJSON + "});"
 	return s.run(script, 120*time.Second)
 }
 
@@ -1665,7 +1672,7 @@ func (s *server) waitTimeout(raw string) (any, error) {
 	return s.runState(body, time.Duration(ms)*time.Millisecond+60*time.Second)
 }
 
-func (s *server) waitEvent(event, saveAs, rawTimeout string) (any, error) {
+func (s *server) waitEvent(event, rawSelector, saveAs, rawTimeout string) (any, error) {
 	timeout := 60000
 	var err error
 	if rawTimeout != "" {
@@ -1673,27 +1680,40 @@ func (s *server) waitEvent(event, saveAs, rawTimeout string) (any, error) {
 			return nil, err
 		}
 	}
+	trigger := ""
+	if strings.TrimSpace(rawSelector) != "" {
+		selector, err := validateSelector(rawSelector)
+		if err != nil {
+			return nil, err
+		}
+		trigger = "await page.click(" + quote(selector) + ");"
+	}
 	wait := "page.waitForEvent(" + quote(event) + ",{timeout:" + strconv.Itoa(timeout) + "})"
-	var body string
 	switch event {
 	case "download":
 		path, err := filepath.Abs(strings.TrimSpace(saveAs))
 		if err != nil || strings.TrimSpace(saveAs) == "" {
 			return nil, errors.New("saveAs is required for a download event")
 		}
-		body = s.pagePrefix() + "const dl=await " + wait + ";await dl.saveAs(" + quote(filepath.ToSlash(path)) + ");" +
+		body := s.pagePrefix() + "const pending=" + wait + ";" + trigger +
+			"const dl=await pending;await dl.saveAs(" + quote(filepath.ToSlash(path)) + ");" +
 			"return {path:" + quote(filepath.ToSlash(path)) + ",filename:dl.suggestedFilename(),url:dl.url()};"
+		return s.run(body, time.Duration(timeout)*time.Millisecond+60*time.Second)
 	case "popup":
-		body = s.pagePrefix() + "const pop=await " + wait + ";const adopted=await task.adopt(pop);" +
+		// The Page returned by waitForEvent is not the handle task.adopt wants;
+		// adopt the unmanaged tab that task.tabs() reports instead.
+		body := s.pagePrefix() + "const pending=" + wait + ";" + trigger +
+			"await pending;" +
+			"const tabs=await task.tabs();" +
+			"const target=tabs.find(t=>!t.label) || tabs[tabs.length-1];" +
+			"if(!target) return {error:'popup opened but no tab found'};" +
+			"if(target.label) return {page:target.label,url:target.url,title:target.title,alreadyManaged:true};" +
+			"const adopted=await task.adopt(target.page);" +
 			"return {page:adopted.label,url:await adopted.url(),title:await adopted.title()};"
-	case "dialog":
-		body = s.pagePrefix() + "const dlg=await " + wait + ";return {type:dlg.type(),message:dlg.message()};"
-	case "filechooser":
-		body = s.pagePrefix() + "const fc=await " + wait + ";return {multiple:fc.isMultiple()};"
+		return s.run(body, time.Duration(timeout)*time.Millisecond+60*time.Second)
 	default:
-		return nil, errors.New("event must be download, popup, dialog, or filechooser")
+		return nil, errors.New("event must be download or popup")
 	}
-	return s.run(body, time.Duration(timeout)*time.Millisecond+60*time.Second)
 }
 
 func (s *server) mouse(action, rawX, rawY, button string) (any, error) {
