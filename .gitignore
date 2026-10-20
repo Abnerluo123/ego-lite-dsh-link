@@ -1,0 +1,5 @@
+dist/
+.gocache/
+.gotmp/
+connector.log
+__pycache__/
