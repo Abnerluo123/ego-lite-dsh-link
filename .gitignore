@@ -3,3 +3,6 @@ dist/
 .gotmp/
 connector.log
 __pycache__/
+.skill-guide.md
+*.exe
+*.log
