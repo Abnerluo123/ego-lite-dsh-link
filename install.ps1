@@ -14,15 +14,19 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $Binary) {
-    $Binary = Join-Path $PSScriptRoot "dist\zero-ego-windows-amd64.exe"
-    if (-not (Test-Path $Binary)) {
-        # Release zip puts the binaries next to this script.
-        $Binary = Join-Path $PSScriptRoot "zero-ego-windows-amd64.exe"
-    }
+    $candidates = @(
+        (Join-Path $PSScriptRoot "dist\zero-ego-windows-amd64.exe"),
+        (Join-Path $PSScriptRoot "zero-ego-windows-amd64.exe"),
+        (Join-Path $PSScriptRoot "dist\zero-ego-lite-windows-amd64.exe"),
+        (Join-Path $PSScriptRoot "zero-ego-lite-windows-amd64.exe")
+    )
+    $Binary = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $Binary) { $Binary = $candidates[0] }
 }
 if (-not (Test-Path $Binary)) {
     throw "connector binary not found: $Binary (run build.ps1 first)"
 }
+$isLite = (Split-Path $Binary -Leaf) -like "*lite*"
 
 if (-not $EgoCli) {
     $candidates = @(
@@ -39,9 +43,10 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 # Versioned file name: overwriting a running image fails on Windows with a lock,
 # and the copy would silently keep the old build. A new name sidesteps the lock
 # and makes it obvious which build is installed.
-$target = Join-Path $InstallDir "zero-ego-$Version.exe"
+$name = if ($isLite) { "zero-ego-lite-$Version.exe" } else { "zero-ego-$Version.exe" }
+$target = Join-Path $InstallDir $name
 
-Get-Process -Name "ego-browser-dsh" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "zero-ego*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Copy-Item $Binary $target -Force
 $sourceHash = (Get-FileHash $Binary).Hash
 $targetHash = (Get-FileHash $target).Hash
