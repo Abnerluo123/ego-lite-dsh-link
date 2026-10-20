@@ -1,18 +1,17 @@
 # zero-ego (lite)
 
-Ego Lite-only build of [zero-ego](../README.md): **12 tools**, actions return only
+Ego Lite-only build of [zero-ego](../README.md): **16 tools**, actions return only
 `page/url/title`, no accessibility tree by default.
 
 | | full (main) | this build |
 | --- | --- | --- |
-| tools | 49 | 12 |
+| tools | 49 | 16 |
 | action result | accessibility tree | page/url/title |
 | binary | 3.28 MB | 3.02 MB |
 
 ## Tools
 
-`open` · `snapshot` (`full:"true"` for the tree) · `click` · `fill` · `press` ·
-`eval` · `wait` · `tabs` · `switch` · `screenshot` · `run` · `finish`
+`open` · `snapshot` (`full:"true"` for the tree) · `click` · `fill` · `press` · `eval` · `wait` · `scroll` · `upload` · `dialog` · `download` · `tabs` · `switch` · `screenshot` · `run` · `finish`
 
 `run` keeps the full Ego API available (`page`, `task` in scope).
 
