@@ -2,6 +2,5 @@
 
 package main
 
-// egoOnly is false for the general build, which also targets non-Ego browsers
-// (Edge/CDP) and returns the accessibility tree by default.
+// Standard distribution label. The maintained backend is Ego Lite in both builds.
 var egoOnly = false

@@ -1,54 +1,51 @@
-# Builds the connector for every supported platform.
-# Requires Go 1.22+ on PATH (or pass -GoExe).
+# Builds both connector variants for every supported platform (Go 1.22+).
 param(
     [string]$GoExe = "go",
     [string]$OutDir = "$PSScriptRoot\dist"
 )
-
 $ErrorActionPreference = "Stop"
+$OutDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir)
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-
-# Some locked-down Windows profiles deny %LOCALAPPDATA%\go-build. Keep the build
-# cache and temp files beside the project unless the caller set them.
-if (-not $env:GOCACHE) { $env:GOCACHE = Join-Path $PSScriptRoot ".gocache" }
-if (-not $env:GOTMPDIR) { $env:GOTMPDIR = Join-Path $PSScriptRoot ".gotmp" }
-New-Item -ItemType Directory -Force -Path $env:GOCACHE, $env:GOTMPDIR | Out-Null
-
-$env:CGO_ENABLED = "0"
+$environmentNames = @("GOOS", "GOARCH", "CGO_ENABLED", "GOCACHE", "GOTMPDIR")
+$savedEnvironment = @{}
+foreach ($key in $environmentNames) { $savedEnvironment[$key] = [Environment]::GetEnvironmentVariable($key, "Process") }
 $targets = @(
-    @{ GOOS = "windows"; GOARCH = "amd64"; Name = "zero-ego-windows-amd64.exe" },
-    @{ GOOS = "windows"; GOARCH = "arm64"; Name = "zero-ego-windows-arm64.exe" },
-    @{ GOOS = "darwin";  GOARCH = "arm64"; Name = "zero-ego-darwin-arm64" },
-    @{ GOOS = "darwin";  GOARCH = "amd64"; Name = "zero-ego-darwin-amd64" },
-    @{ GOOS = "linux";   GOARCH = "amd64"; Name = "zero-ego-linux-amd64" },
-    @{ GOOS = "linux";   GOARCH = "arm64"; Name = "zero-ego-linux-arm64" }
+    @{ GOOS = "windows"; GOARCH = "amd64" },
+    @{ GOOS = "windows"; GOARCH = "arm64" },
+    @{ GOOS = "darwin"; GOARCH = "arm64" },
+    @{ GOOS = "darwin"; GOARCH = "amd64" },
+    @{ GOOS = "linux"; GOARCH = "amd64" },
+    @{ GOOS = "linux"; GOARCH = "arm64" }
 )
-
 Push-Location $PSScriptRoot
 try {
+    if (-not $env:GOCACHE) { $env:GOCACHE = Join-Path $PSScriptRoot ".gocache" }
+    if (-not $env:GOTMPDIR) { $env:GOTMPDIR = Join-Path $PSScriptRoot ".gotmp" }
+    New-Item -ItemType Directory -Force -Path $env:GOCACHE, $env:GOTMPDIR | Out-Null
+    $env:CGO_ENABLED = "0"
+    # Tests must run on the host, even when the caller has cross-compilation variables set.
+    Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
     & $GoExe test ./...
     if ($LASTEXITCODE -ne 0) { throw "go test failed" }
+    & $GoExe test -tags egoonly ./...
+    if ($LASTEXITCODE -ne 0) { throw "go test -tags egoonly failed" }
     foreach ($target in $targets) {
         $env:GOOS = $target.GOOS
         $env:GOARCH = $target.GOARCH
-        & $GoExe build -trimpath -ldflags "-s -w" -o (Join-Path $OutDir $target.Name) .
-        if ($LASTEXITCODE -ne 0) { throw "go build failed for $($target.GOOS)/$($target.GOARCH)" }
-        Write-Host "built $($target.Name)"
-    }
-
-    # Ego-native build: same 49 tools, tuned for the official ego-browser skill
-    # (brief results by default, auto-follow new tabs). Not a reduced feature set.
-    foreach ($target in $targets) {
-        $env:GOOS = $target.GOOS
-        $env:GOARCH = $target.GOARCH
-        $name = "zero-ego-lite-" + ($target.Name -replace '^zero-ego-', '')
-        & $GoExe build -trimpath -tags egoonly -ldflags "-s -w" -o (Join-Path $OutDir $name) .
-        if ($LASTEXITCODE -ne 0) { throw "ego-native build failed for $($target.GOOS)/$($target.GOARCH)" }
-        Write-Host "built $name"
+        $extension = if ($target.GOOS -eq "windows") { ".exe" } else { "" }
+        foreach ($variant in @("full", "lite")) {
+            $prefix = if ($variant -eq "lite") { "zero-ego-lite" } else { "zero-ego" }
+            $name = "$prefix-$($target.GOOS)-$($target.GOARCH)$extension"
+            $arguments = @("build", "-trimpath")
+            if ($variant -eq "lite") { $arguments += @("-tags", "egoonly") }
+            $arguments += @("-ldflags", "-s -w", "-o", (Join-Path $OutDir $name), ".")
+            & $GoExe @arguments
+            if ($LASTEXITCODE -ne 0) { throw "go build failed for $name" }
+            Write-Host "built $name"
+        }
     }
 }
 finally {
     Pop-Location
-    Remove-Item Env:GOOS -ErrorAction SilentlyContinue
-    Remove-Item Env:GOARCH -ErrorAction SilentlyContinue
+    foreach ($key in $environmentNames) { [Environment]::SetEnvironmentVariable($key, $savedEnvironment[$key], "Process") }
 }

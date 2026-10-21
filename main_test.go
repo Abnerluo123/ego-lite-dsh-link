@@ -65,7 +65,7 @@ func TestActionScriptsDeclarePageOnce(t *testing.T) {
 		if strings.Count(script, "const page=task.page(") != 1 {
 			t.Fatalf("page declared more than once: %s", script)
 		}
-		if strings.Count(script, `const statePage=task.page("p1");`) != 1 {
+		if strings.Count(script, `const statePage=(await __ego.pick(task,"p1")).page;`) != 1 {
 			t.Fatalf("statePage declaration missing: %s", script)
 		}
 	}
@@ -99,7 +99,7 @@ func TestStartThenNavigateUsesSameSpace(t *testing.T) {
 	withFakeRunner(t, func(script string, _ time.Duration) (json.RawMessage, error) {
 		seen = append(seen, script)
 		if strings.Contains(script, "taskSpace(") && strings.Contains(script, "{spaceId") {
-			return json.RawMessage(`{"spaceId":7}`), nil
+			return json.RawMessage(`{"spaceId":7,"name":"space","ownership":"agent","tabs":[{"label":"p1","active":true}]}`), nil
 		}
 		return json.RawMessage(`{"page":"p1","url":"https://example.com/","title":"Example","snapshot":"root"}`), nil
 	})
@@ -115,8 +115,8 @@ func TestStartThenNavigateUsesSameSpace(t *testing.T) {
 	if result["title"] != "Example" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-	if len(seen) != 2 || !strings.Contains(seen[1], s.taskName) {
-		t.Fatalf("navigate did not reuse the started space: %#v", seen)
+	if len(seen) != 2 || !strings.Contains(seen[1], "taskSpace(7)") {
+		t.Fatal("navigate did not reuse the started numeric space id")
 	}
 }
 
@@ -154,8 +154,8 @@ func TestProtocolInitializeAndToolsList(t *testing.T) {
 	}
 	listResp := s.handle([]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
 	list := listResp.Result.(map[string]any)["tools"].([]map[string]any)
-	if len(list) != 53 {
-		t.Fatalf("expected 53 tools, got %d", len(list))
+	if len(list) != 56 {
+		t.Fatalf("expected 56 tools, got %d", len(list))
 	}
 	names := map[string]bool{}
 	for _, item := range list {
@@ -211,7 +211,7 @@ func TestRunScriptWrapsTaskAndPage(t *testing.T) {
 	if result["title"] != "Example" {
 		t.Fatalf("unexpected value: %#v", result)
 	}
-	if !strings.Contains(seen, `const page=task.page("p1");`) || !strings.Contains(seen, "page.evaluate") {
+	if !strings.Contains(seen, `const page=(await __ego.pick(task,"p1")).page;`) || !strings.Contains(seen, "page.evaluate") {
 		t.Fatalf("script not wrapped correctly: %s", seen)
 	}
 }
@@ -305,7 +305,7 @@ func TestBriefModeSkipsSnapshotAndTruncates(t *testing.T) {
 	full := &server{maxChars: 500}
 	truncated := full.state(map[string]any{"snapshot": strings.Repeat("x", 900)})
 	text := truncated["snapshot"].(string)
-	if len(text) > 560 || !strings.HasSuffix(text, "[snapshot truncated]") {
+	if len(text) > 650 || !strings.Contains(text, "[snapshot truncated") {
 		t.Fatalf("snapshot not truncated: len=%d", len(text))
 	}
 }

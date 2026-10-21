@@ -1,8 +1,7 @@
-"""Reference Python implementation of the Ego Lite MCP connector.
+"""Historical Python example (not maintained or released).
 
-Same protocol and the same tool set as the Go build. Standard library only; the
-Go binary is the maintained, portable version, this one is for reading and for
-machines that already have Python.
+This is not the current Go protocol/tool set and must not be used as a drop-in
+server. See the root Go implementation and docs/AGENT_GUIDE.md for current usage.
 """
 
 from __future__ import annotations
