@@ -1,5 +1,13 @@
 # Feedback status
 
+## 1.7.1: task-space tools work on the current Ego CLI
+
+- On ego lite 0.6.0.16 every task-space call (`start`, `spaces`, `claim_space`, `control_status`, `finish`, `run`) failed with `ReferenceError: await is not defined`. The generated wrapper opened with `const value=await(async()=>{…})();`, and ego-browser evaluates a stdin script as a plain script unless a top-level await is followed by an identifier, so `await` was bound as an identifier.
+- Generated scripts now await a named async function (`const valueBody=async()=>{…};const value=await valueBody();`) and no longer depend on that heuristic. The shared helper is `bodyCall`.
+- Regression test `TestGeneratedScriptsAvoidTopLevelAwaitParen` rejects any generated `=await(`.
+- Cause was introduced in 1.6.0 by `runStandalone`; 1.4.0 was unaffected because its scripts opened with `await taskSpace(...)`.
+- Verified live through the DSH MCP client: start, navigate, snapshot, click, fill, press, wait_url, evaluate, run, screenshot, new_page, tabs, close_page, switch, box, frames, page_info, do, control_status and finish. `finish` returned `agentControlReleased:true` with `verification:"space-registry"`.
+
 ## 1.7.0: task completion and takeover release
 
 - Finish now verifies the addressed space in the registry and returns `agentControlReleased:true/false/null`; a dispatched finish is never automatically replayed.

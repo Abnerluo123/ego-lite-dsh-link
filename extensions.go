@@ -20,7 +20,7 @@ func (s *server) spaceRef() string {
 	return quote(s.taskName)
 }
 func (s *server) taskSource(body string) string {
-	return browserHelpers + "\nconst task=await taskSpace(" + s.spaceRef() + ");const value=await(async()=>{" + body + "})();console.log(" + quote(resultMarker) + "+(JSON.stringify(value)??'null'));"
+	return browserHelpers + "\nconst task=await taskSpace(" + s.spaceRef() + ");" + bodyCall("value", body) + "console.log(" + quote(resultMarker) + "+(JSON.stringify(value)??'null'));"
 }
 func (s *server) snapshotOptions(a map[string]string) (any, error) {
 	opts := map[string]any{}
@@ -59,9 +59,14 @@ func (s *server) snapshotOptions(a map[string]string) (any, error) {
 	return m, nil
 }
 
+// standaloneSource is the script for tools that run without an active page.
+func standaloneSource(body string) string {
+	return browserHelpers + "\n" + bodyCall("value", body) +
+		"console.log(" + quote(resultMarker) + "+(JSON.stringify(value)??'null'));"
+}
+
 func runStandalone(body string, timeout time.Duration) (any, error) {
-	source := browserHelpers + "\nconst value=await(async()=>{" + body + "})();console.log(" + quote(resultMarker) + "+(JSON.stringify(value)??'null'));"
-	data, err := runner(source, timeout)
+	data, err := runner(standaloneSource(body), timeout)
 	if err != nil {
 		return nil, err
 	}

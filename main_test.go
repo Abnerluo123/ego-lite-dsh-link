@@ -44,6 +44,37 @@ func TestValidateSelectorTextKey(t *testing.T) {
 	}
 }
 
+// The stdin evaluator in ego-browser only switches to async evaluation when a
+// top-level await is followed by an identifier, so no generated script may open
+// with `await(`; that shape used to fail with "await is not defined".
+func TestGeneratedScriptsAvoidTopLevelAwaitParen(t *testing.T) {
+	server := &server{taskName: "probe"}
+	scripts := map[string]string{
+		"taskSource":       taskSource("return 1;", "probe"),
+		"serverTaskSource": server.taskSource("return 1;"),
+		"standaloneSource": standaloneSource("return 1;"),
+	}
+	for name, script := range scripts {
+		if strings.Contains(script, "=await(") || strings.Contains(script, "=await (") {
+			t.Errorf("%s assigns an await of a parenthesised expression: %s", name, firstAwait(script))
+		}
+	}
+	if got := bodyCall("value", "return 1;"); got != "const valueBody=async()=>{return 1;};const value=await valueBody();" {
+		t.Fatalf("unexpected bodyCall output: %s", got)
+	}
+}
+
+func firstAwait(script string) string {
+	if i := strings.Index(script, "await"); i >= 0 {
+		end := i + 40
+		if end > len(script) {
+			end = len(script)
+		}
+		return script[i:end]
+	}
+	return ""
+}
+
 func TestTaskSourceEscapesTaskName(t *testing.T) {
 	script := taskSource("return 1;", `name";process.exit(1);//`)
 	if !strings.Contains(script, `taskSpace("name\";process.exit(1);//")`) {

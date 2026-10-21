@@ -1,6 +1,6 @@
 # Packs full and Ego-native releases with complete, buildable source for both tags.
 param(
-    [string]$Version = "1.7.0",
+    [string]$Version = "1.7.1",
     [string]$OutDir = "$PSScriptRoot\dist",
     [string]$BinaryDir = ""
 )

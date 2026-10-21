@@ -24,7 +24,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.7.0"
+	serverVersion = "1.7.1"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -290,9 +290,20 @@ func quote(s string) string {
 	return string(b)
 }
 
+// bodyCall wraps body in a named async function and awaits its result.
+//
+// The wrapper must never open with `await(`. ego-browser evaluates a stdin
+// script as a plain script unless it finds a top-level `await <identifier>`, so
+// the older `const value=await(async()=>{...})();` shape made `await` an
+// identifier and failed with "ReferenceError: await is not defined" at the line
+// that started the wrapper.
+func bodyCall(name, body string) string {
+	return "const " + name + "Body=async()=>{" + body + "};const " + name + "=await " + name + "Body();"
+}
+
 func taskSource(body, taskName string) string {
 	return browserHelpers + "\nconst task=await taskSpace(" + quote(taskName) + ");" +
-		"const value=await (async()=>{" + body + "})();" +
+		bodyCall("value", body) +
 		"console.log(" + quote(resultMarker) + "+(JSON.stringify(value)??'null'));"
 }
 
@@ -1179,7 +1190,7 @@ func (s *server) runScript(script string) (any, error) {
 	}
 	source := browserHelpers + "\nconst task=await taskSpace(" + s.spaceRef() + ");" +
 		s.pagePrefix() +
-		"const value=await (async()=>{" + script + "\n})();" +
+		bodyCall("value", script+"\n") +
 		"console.log(" + quote(resultMarker) + "+(JSON.stringify(value)??'null'));"
 	payload, err := runner(source, 180*time.Second)
 	if err != nil {
@@ -1621,7 +1632,7 @@ func (s *server) networkCapture(rawURL, script, rawWait, filter, rawLimit string
 		if len(script) > maxScript {
 			return nil, fmt.Errorf("script exceeds the %d-character limit", maxScript)
 		}
-		action += "await (async()=>{" + script + "\n})();"
+		action += bodyCall("replay", script)
 	}
 	body := s.pagePrefix() +
 		"await page.cdp('Network.enable');await page.events();" +
