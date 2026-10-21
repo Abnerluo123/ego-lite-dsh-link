@@ -1,4 +1,4 @@
-﻿// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
+// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
 // fixed set of browser tools for Ego Lite to DeepSeek Harness.
 //
 // It compiles to a single self-contained binary: no runtime, no dependencies.
@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.3.0"
+	serverVersion = "1.4.0"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -632,15 +632,31 @@ var tools = []tool{
 	},
 	{
 		name: "ego_lite_dialog",
-		description: "Accept or dismiss the open JavaScript dialog (alert/confirm/prompt). " +
-			"Pass text to answer a prompt.",
+		description: "Handle a JavaScript dialog (alert/confirm/prompt). With trigger it clicks first, waits for " +
+			"Page.javascriptDialogOpening, then accepts or dismisses; without a dialog it reports handled:false.",
 		properties: map[string]any{
-			"action": map[string]any{"type": "string", "enum": []string{"accept", "dismiss"}},
-			"text":   map[string]any{"type": "string", "maxLength": 2000},
+			"action":    map[string]any{"type": "string", "enum": []string{"accept", "dismiss"}},
+			"text":      map[string]any{"type": "string", "maxLength": 2000},
+			"trigger":   map[string]any{"type": "string", "maxLength": 512},
+			"timeoutMs": map[string]any{"type": "integer", "minimum": 100, "maximum": 120000},
 		},
 		required: []string{"action"},
 		handler: func(s *server, a map[string]string) (any, error) {
-			return s.dialog(a["action"], a["text"])
+			return s.dialog(a["action"], a["text"], a["trigger"], a["timeoutMs"])
+		},
+	},
+	{
+		name: "ego_lite_filechooser",
+		description: "Fill a JS-opened file picker: click the trigger, catch Page.fileChooserOpened, then set the " +
+			"files with DOM.setFileInputFiles. Use this when upload's selector does not exist until JS opens a chooser.",
+		properties: map[string]any{
+			"trigger":   map[string]any{"type": "string", "maxLength": 512},
+			"paths":     map[string]any{"type": "string", "minLength": 1, "maxLength": 8000},
+			"timeoutMs": map[string]any{"type": "integer", "minimum": 100, "maximum": 120000},
+		},
+		required: []string{"paths"},
+		handler: func(s *server, a map[string]string) (any, error) {
+			return s.fileChooser(a["trigger"], a["paths"], a["timeoutMs"])
 		},
 	},
 	{
@@ -1362,20 +1378,109 @@ func (s *server) dblclick(rawSelector string) (any, error) {
 	return s.runState(body, 90*time.Second)
 }
 
-func (s *server) dialog(action, text string) (any, error) {
-	var call string
+func (s *server) dialog(action, text, rawTrigger, rawTimeout string) (any, error) {
+	var handle string
 	switch action {
 	case "accept":
 		if len(text) > 2000 {
 			return nil, errors.New("text exceeds the 2000-character limit")
 		}
-		call = "await page.acceptDialog(" + quote(text) + ");"
+		handle = "await page.acceptDialog(" + quote(text) + ");"
 	case "dismiss":
-		call = "await page.dismissDialog();"
+		handle = "await page.dismissDialog();"
 	default:
 		return nil, errors.New("action must be accept or dismiss")
 	}
-	return s.runState(s.pagePrefix()+call+s.stateBody(s.activePage()), 60*time.Second)
+	timeout := 5000
+	var err error
+	if rawTimeout != "" {
+		if timeout, err = intArg("timeoutMs", rawTimeout, 100, 120000); err != nil {
+			return nil, err
+		}
+	}
+	trigger := ""
+	if strings.TrimSpace(rawTrigger) != "" {
+		selector, err := validateSelector(rawTrigger)
+		if err != nil {
+			return nil, err
+		}
+		trigger = "await page.click(" + quote(selector) + ");"
+	}
+	// Ego has no dialog event, but CDP does: Page.javascriptDialogOpening. Poll
+	// the buffered CDP events so the dialog is handled only when it is really open.
+	body := s.pagePrefix() +
+		"await page.cdp('Page.enable');await page.events();" + trigger +
+		"const deadline=Date.now()+" + strconv.Itoa(timeout) + ";" +
+		"let info=null;" +
+		"while(Date.now()<deadline){const evs=await page.events();" +
+		"  const ev=evs.find(e=>e&&e.method==='Page.javascriptDialogOpening');" +
+		"  if(ev){info=ev.params||{};break;} await page.waitForTimeout(150);}" +
+		"if(!info) return {handled:false,reason:'no dialog opened'};" +
+		handle +
+		"await page.waitForTimeout(150);" +
+		"return {handled:true,type:info.type,message:(info.message||'').slice(0,300)};"
+	return s.run(body, time.Duration(timeout)*time.Millisecond+60*time.Second)
+}
+
+// fileChooser handles JS-opened file pickers: CDP reports Page.fileChooserOpened
+// with a backendNodeId, and DOM.setFileInputFiles fills it directly.
+func (s *server) fileChooser(rawTrigger, rawPaths, rawTimeout string) (any, error) {
+	trigger := ""
+	if strings.TrimSpace(rawTrigger) != "" {
+		selector, err := validateSelector(rawTrigger)
+		if err != nil {
+			return nil, err
+		}
+		trigger = "await page.click(" + quote(selector) + ");"
+	}
+	paths, err := resolveFiles(rawPaths)
+	if err != nil {
+		return nil, err
+	}
+	encoded, _ := json.Marshal(paths)
+	timeout := 5000
+	if rawTimeout != "" {
+		if timeout, err = intArg("timeoutMs", rawTimeout, 100, 120000); err != nil {
+			return nil, err
+		}
+	}
+	body := s.pagePrefix() +
+		"if(" + strconv.FormatBool(trigger == "") + "){" +
+		"  const tagged=await page.evaluate(()=>{const walk=(r,o=[])=>{for(const e of r.querySelectorAll('*')){if(e.shadowRoot)walk(e.shadowRoot,o);o.push(e);}return o;};" +
+		"    const inputs=walk(document).filter(e=>e.tagName==='INPUT'&&e.type==='file');" +
+		"    const el=inputs[inputs.length-1]; if(!el) return false; el.setAttribute('data-ego-filechooser','1'); return true;});" +
+		"  if(!tagged) return {handled:false,reason:'no file input found'};" +
+		"  await page.setInputFiles('[data-ego-filechooser=\"1\"]'," + string(encoded) + ");" +
+		"  return {handled:true,fallback:true,files:" + string(encoded) + "};}" +
+		// Ego exposes page.waitForFileChooser(): arm it, then click the trigger.
+		"const fcPromise=page.waitForFileChooser({timeout:" + strconv.Itoa(timeout) + "});" + trigger +
+		"const fc=await fcPromise;await fc.setFiles(" + string(encoded) + ");" +
+		"return {handled:true,files:" + string(encoded) + "};"
+	return s.run(body, time.Duration(timeout)*time.Millisecond+60*time.Second)
+}
+
+// resolveFiles validates absolute paths for upload-style tools.
+func resolveFiles(rawPaths string) ([]string, error) {
+	files := make([]string, 0, 2)
+	for _, line := range strings.Split(rawPaths, "\n") {
+		item := strings.TrimSpace(line)
+		if item == "" {
+			continue
+		}
+		abs, err := filepath.Abs(item)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(abs)
+		if err != nil || info.IsDir() {
+			return nil, errors.New("file not found: " + abs)
+		}
+		files = append(files, filepath.ToSlash(abs))
+	}
+	if len(files) == 0 {
+		return nil, errors.New("paths must contain at least one file")
+	}
+	return files, nil
 }
 
 func (s *server) upload(rawSelector, rawPaths string) (any, error) {

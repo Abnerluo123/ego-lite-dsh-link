@@ -19,7 +19,7 @@ can hand it to an agent and say one sentence:
    `Failed to connect to ego_cli bootstrap`.
 3. **Find `ego-browser`** (usually `~/.local/share/ego/active_version_dir/`) and
    pass it with `-EgoCli` / `--ego` if auto-detection fails.
-4. **Verify**: after the profile reloads, `tools/list` should show 49
+4. **Verify**: after the profile reloads, `tools/list` should show 50
    `ego_lite_*` tools; `ego_lite_start` should return a `spaceId`.
 5. **Record** the install path and how to remove it: delete the `mcp-ego-lite`
    `insert` item from the profile patch.

@@ -154,8 +154,8 @@ func TestProtocolInitializeAndToolsList(t *testing.T) {
 	}
 	listResp := s.handle([]byte(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`))
 	list := listResp.Result.(map[string]any)["tools"].([]map[string]any)
-	if len(list) != 49 {
-		t.Fatalf("expected 49 tools, got %d", len(list))
+	if len(list) != 50 {
+		t.Fatalf("expected 50 tools, got %d", len(list))
 	}
 	names := map[string]bool{}
 	for _, item := range list {
