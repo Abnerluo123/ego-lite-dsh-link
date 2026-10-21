@@ -83,6 +83,7 @@ func (s *server) acceptSpace(value any) (any, error) {
 	if !ok || id < 1 || name == "" || ownership == "" {
 		return nil, errors.New("task-space response is missing id, name or ownership")
 	}
+	s.lastCompletion = nil
 	s.spaceID = int(id)
 	s.taskName = name
 	s.ownership = ownership
@@ -93,6 +94,8 @@ func (s *server) acceptSpace(value any) (any, error) {
 	}
 	result["page"] = s.page
 	result["needsClaim"] = ownership != "agent"
+	result["completionRequired"] = ownership == "agent"
+	result["finishHint"] = "Before final success answer call ego_lite_finish; keep:\"all\" retains result tabs while ending takeover."
 	return result, nil
 }
 func (s *server) refreshSpace() (any, error) {

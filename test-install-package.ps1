@@ -1,6 +1,8 @@
 # Temporary-directory integration tests. Never reads or writes the real DSH profile.
 param([string]$GoExe = "go", [string]$BashExe = "", [string]$TempDir = "$PSScriptRoot\.gotmp", [switch]$KeepTemp)
 $ErrorActionPreference = "Stop"
+$defaultVersion = [regex]::Match([System.IO.File]::ReadAllText((Join-Path $PSScriptRoot "install.ps1")), 'Version = "([^"]+)"').Groups[1].Value
+if (-not $defaultVersion) { throw "cannot read installer version" }
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "assertion failed: $Message" } }
 function Put([string]$Path, [string]$Text) { [System.IO.File]::WriteAllText($Path, $Text, [System.Text.UTF8Encoding]::new($false)) }
 function ReadText([string]$Path) { return [System.IO.File]::ReadAllText($Path) }
@@ -36,7 +38,7 @@ try {
     $commentOnly = "# mcp-ego-lite in a comment must not prevent installation`n- insert: []`n"
     Put $patch $commentOnly
     & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -ApplyProfile
-    $installed = Join-Path $installDir "zero-ego-1.6.0.exe"
+    $installed = Join-Path $installDir "zero-ego-$defaultVersion.exe"
     Assert ((ReadText $installed) -eq "zero-ego-windows-arm64.exe") "native ARM64 binary selected"
     $after = ReadText $patch
     Assert ($after.Contains("- id: mcp-ego-lite")) "comment-only marker does not suppress insertion"
@@ -69,22 +71,22 @@ try {
 '@
     Put $patch ($existing.Replace("`r`n", "`n").Replace("`n", "`r`n") + "`r`n")
     $beforeUpgrade = ReadText $patch
-    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Version 1.6.1 -Architecture amd64 -ApplyProfile
+    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Version 9.0.1 -Architecture amd64 -ApplyProfile
     $upgraded = ReadText $patch
-    Assert ($upgraded.Contains("zero-ego-1.6.1.exe")) "existing command upgraded"
-    Assert ((ReadText (Join-Path $installDir "zero-ego-1.6.1.exe")) -eq "zero-ego-windows-amd64.exe") "explicit AMD64 override honored"
+    Assert ($upgraded.Contains("zero-ego-9.0.1.exe")) "existing command upgraded"
+    Assert ((ReadText (Join-Path $installDir "zero-ego-9.0.1.exe")) -eq "zero-ego-windows-amd64.exe") "explicit AMD64 override honored"
     Assert ($upgraded.Contains("KEEP_ME: unchanged") -and $upgraded.Contains("customSetting: retained") -and $upgraded.Contains("toolCallTimeoutMs: 456789")) "custom config and env preserved"
     Assert ($upgraded.Contains("command: keep-other") -and $upgraded.Contains("command: keep-after")) "unrelated entries preserved"
     Assert (-not $upgraded.Contains("old-command") -and -not $upgraded.Contains("old-directory") -and -not $upgraded.Contains("old-cli")) "all three target fields updated"
     Assert (-not [regex]::IsMatch($upgraded, '(?<!\r)\n')) "Windows profile line endings preserved"
     Assert (@(Get-ChildItem -LiteralPath $profile -Filter "*.bak.*" | Where-Object { (ReadText $_.FullName) -ceq $beforeUpgrade }).Count -eq 1) "upgrade backup preserves prior profile"
-    $originalImage = ReadText (Join-Path $installDir "zero-ego-1.6.1.exe")
+    $originalImage = ReadText (Join-Path $installDir "zero-ego-9.0.1.exe")
     Put (Join-Path $fixture "dist/zero-ego-windows-amd64.exe") "rebuilt same version"
-    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Version 1.6.1 -Architecture amd64 -ApplyProfile
-    Assert ((ReadText (Join-Path $installDir "zero-ego-1.6.1.exe")) -ceq $originalImage) "same-version rebuild leaves old executable intact"
-    Assert ((ReadText $patch) -match 'zero-ego-1\.6\.1-[a-f0-9]{12}\.exe') "same-version rebuild selects unique executable"
+    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Version 9.0.1 -Architecture amd64 -ApplyProfile
+    Assert ((ReadText (Join-Path $installDir "zero-ego-9.0.1.exe")) -ceq $originalImage) "same-version rebuild leaves old executable intact"
+    Assert ((ReadText $patch) -match 'zero-ego-9\.0\.1-[a-f0-9]{12}\.exe') "same-version rebuild selects unique executable"
     & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Binary (Join-Path $fixture "dist/zero-ego-lite-windows-arm64.exe") -ApplyProfile
-    Assert ((ReadText $patch).Contains("zero-ego-lite-1.6.0.exe")) "full-to-lite profile switch updates executable"
+    Assert ((ReadText $patch).Contains("zero-ego-lite-$defaultVersion.exe")) "full-to-lite profile switch updates executable"
 
     Put $patch "- insert:`n    - id: mcp-ego-lite`n      config:`n        serverName: ego_lite`n"
     & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Architecture arm64 -ApplyProfile
@@ -119,7 +121,7 @@ try {
     Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
     foreach ($prefix in @("zero-ego", "zero-ego-lite")) {
         $extracted = Join-Path $testRoot "$prefix-extracted"
-        Expand-Archive -LiteralPath (Join-Path $archives "$prefix-1.6.0.zip") -DestinationPath $extracted
+        Expand-Archive -LiteralPath (Join-Path $archives "$prefix-$defaultVersion.zip") -DestinationPath $extracted
         Assert (-not (Test-Path -LiteralPath (Join-Path $extracted "python"))) "stale Python excluded"
         foreach ($file in Get-ChildItem -LiteralPath $fixture -File | Where-Object { $_.Extension -in @(".go", ".js", ".mjs") }) {
             Assert (Test-Path -LiteralPath (Join-Path $extracted $file.Name)) "source/helper $($file.Name) included"

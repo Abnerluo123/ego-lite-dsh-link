@@ -1,13 +1,13 @@
-# zero-ego：Ego 原生发行包
+# zero-ego · Ego 原生版
 
-lite 表示只面向 Ego Lite 及官方 skill，**不表示功能精简**。本包与标准包共享完整工具集与 Ego 后端，动作都默认简短返回。
+配合 Ego Lite 官方 skill 使用，**完整功能，不是精简版**；与标准包共享 Ego 后端，两包都需要 Ego Lite。
 
-安装：Windows 用 `install.ps1 -ApplyProfile`；macOS/Linux 用 `bash install.sh --apply`。
+[下载](https://github.com/Abnerluo123/zero-ego/releases/latest) 后解压：Windows 用 `.\install.ps1 -ApplyProfile`；macOS/Linux 用 `bash ./install.sh --apply`。
 
-需要页面树时显式调用 `ego_lite_snapshot`；需要完整动作返回时用 `ego_lite_output(brief:false)`。截图、上传下载、弹窗、frames、claim、evaluate、run、CDP 均保留。
+`start → snapshot → 操作与验证 → finish → 等待释放回执 → 回复用户`
 
-本包不兼容其他浏览器。标准包当前也使用 Ego 后端；没有虚构的 Edge 兼容层。
+成功结束必须 `finish`，默认关闭 Agent 标签页。仅当结果需要保留时用 `keep:"all"` 或 `keep:"p2"`；仍须确认 `agentControlReleased:true`。false/null 用 `control_status(spaceId)` 检查，不宣称已释放。
 
-构建：`go build -tags egoonly -trimpath -ldflags "-s -w" .`
+用户操作、暂停或报错用 `handoff` 后停止；关标签、最终回复或断开 MCP 不会自动完成任务。不要清理其他 Agent 的空间。
 
-参见 `docs/AGENT_GUIDE.md` 的权限边界、完整用法与已知限制。
+[Agent 快速指南](AGENTS.md) · [工具速查](docs/AGENT_GUIDE.md) · [详细参考](docs/REFERENCE.md)

@@ -34,6 +34,15 @@ func init() {
 				}
 				return s.start()
 			}
+		case "ego_lite_finish":
+			t.description = "REQUIRED final browser step on successful completion: end the task and release agent takeover. Default closes agent pages; keep:\"all\" retains results. Check agentControlReleased; false/null is not verified release. Optional spaceId addresses one known agent-owned space after restart, never all spaces."
+			t.properties["spaceId"] = map[string]any{"type": "integer", "minimum": 1}
+			t.properties["keep"] = map[string]any{"type": "string", "maxLength": 1024, "description": "Empty/default closes agent pages; all keeps every managed result page; or comma-separated labels."}
+			t.handler = func(s *server, a map[string]string) (any, error) { return s.completeSpace(a["spaceId"], a["keep"]) }
+		case "ego_lite_close_page":
+			t.description += " Closing pages does not finish the task or exit agent mode; call ego_lite_finish at completion."
+		case "ego_lite_handoff":
+			t.description = "Temporarily return the current space to the user without closing pages. Use for user action or an interrupted task, not successful completion; then end the agent turn."
 		case "ego_lite_screenshot":
 			t.properties = map[string]any{
 				"selector": map[string]any{"type": "string", "maxLength": 512},
@@ -111,6 +120,7 @@ func init() {
 		}
 	}
 	tools = append(tools,
+		tool{name: "ego_lite_control_status", description: "Check whether a specific task space still has agent ownership; list remaining agent spaces without claiming, closing or creating one. Use after finish or connector restart. This is registry status, not a global browser exit guarantee.", properties: map[string]any{"spaceId": map[string]any{"type": "integer", "minimum": 1}}, handler: func(s *server, a map[string]string) (any, error) { return s.controlStatus(a["spaceId"]) }},
 		tool{name: "ego_lite_frames", description: "List frame ids, names, URLs and parents. Use ids for frame evaluate/filtering; native snapshot refs remain preferred for actions in out-of-process frames.", properties: map[string]any{}, handler: func(s *server, _ map[string]string) (any, error) {
 			return s.run(s.pagePrefix()+"return await __ego.frames(page);", 30*time.Second)
 		}},

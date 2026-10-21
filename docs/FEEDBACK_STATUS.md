@@ -1,4 +1,15 @@
-# Feedback status — 1.6.0
+# Feedback status
+
+## 1.7.0: task completion and takeover release
+
+- Finish now verifies the addressed space in the registry and returns `agentControlReleased:true/false/null`; a dispatched finish is never automatically replayed.
+- `keep:"all"` retains result tabs while ending agent ownership; unknown-origin user pages are preserved. Explicit `spaceId` recovery never claims user spaces or bulk-finishes other agents.
+- `control_status` works without creating a task and reports other active agent spaces without touching them.
+- Optional idle handoff is disabled by default, never closes pages or interrupts an active tool. A persistent MCP server cannot observe the model's final answer.
+- Live exact generated SDK script: space 3 changed from `agent` to `user`, kept `p1`, then independent registry check returned `agentControlReleased:true` and `agentSpaces:[]`. This proves release for that space; it is not a global UI guarantee for other sessions.
+- Regression cases cover malformed receipts, finish failure, unknown verification, repeated finish, other-space isolation, keep parsing, protected pages, idle opt-in and active-call exclusion.
+
+## 1.6.0: real-task hardening
 
 This checklist separates connector changes, verified SDK behavior, and upstream limits. Previous statements that all APIs/sites were fully verified were too broad: a homepage loading is not proof that every workflow works.
 

@@ -4,7 +4,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ego_cli=""
 apply=0
-version="1.6.0"
+version="1.7.0"
 architecture="auto"
 dest_dir="${HOME}/.local/share/zero-ego"
 src=""
