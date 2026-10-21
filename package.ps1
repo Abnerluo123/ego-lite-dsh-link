@@ -1,6 +1,6 @@
 # Packs two release archives: full (49 tools) and lite (12 tools).
 param(
-    [string]$Version = "1.4.0",
+    [string]$Version = "1.5.0",
     [string]$OutDir = "$PSScriptRoot\dist"
 )
 

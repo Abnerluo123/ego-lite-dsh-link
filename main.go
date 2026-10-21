@@ -1,4 +1,4 @@
-// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
+﻿// Command egobrowserdsl is a narrow MCP stdio server that exposes a small,
 // fixed set of browser tools for Ego Lite to DeepSeek Harness.
 //
 // It compiles to a single self-contained binary: no runtime, no dependencies.
@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.4.0"
+	serverVersion = "1.5.0"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -245,7 +245,34 @@ func runEgo(script string, timeout time.Duration) (json.RawMessage, error) {
 			detail = "ego-browser returned no result"
 		}
 	}
-	return nil, errors.New(tail(detail, 4000))
+	return nil, errors.New(cleanCLIError(detail))
+}
+
+// cleanCLIError keeps the actionable first line and drops Ego's internal stack
+// frames and the trailing process-exit notice, which only add noise.
+func cleanCLIError(detail string) string {
+	lines := strings.Split(strings.ReplaceAll(detail, "\r\n", "\n"), "\n")
+	kept := make([]string, 0, 4)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "file:///") && strings.Contains(trimmed, "Application") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "at ") || strings.Contains(trimmed, "nodejs process exited") {
+			continue
+		}
+		kept = append(kept, trimmed)
+		if len(kept) == 3 {
+			break
+		}
+	}
+	if len(kept) == 0 {
+		return tail(detail, 500)
+	}
+	return strings.Join(kept, "\n")
 }
 
 func tail(s string, limit int) string {
@@ -283,16 +310,26 @@ func taskSource(body, taskName string) string {
 }
 
 func (s *server) stateBody(page string) string {
+	return s.stateBodyWith(page, "")
+}
+
+// stateBodyWith appends caller-supplied JS fields to the state result, so an
+// action can report things like noVisibleChange without a second round trip.
+func (s *server) stateBodyWith(page, extra string) string {
 	head := `const statePage=task.page(` + quote(page) + ");" +
 		"const pullTabs=async()=>(await task.tabs()).map(t=>t.label);"
+	suffix := ""
+	if strings.TrimSpace(extra) != "" {
+		suffix = "," + extra
+	}
 	if s.brief {
 		return head + `return {page:statePage.label,url:await statePage.url(),` +
-			"title:await statePage.title(),brief:true,__tabs:await pullTabs()};"
+			"title:await statePage.title(),brief:true,__tabs:await pullTabs()" + suffix + "};"
 	}
 	return head +
 		"const snapshot=await statePage.snapshot();" +
 		`return {page:statePage.label,url:await statePage.url(),title:await statePage.title(),` +
-		"snapshot:typeof snapshot==='string'?snapshot:JSON.stringify(snapshot),__tabs:await pullTabs()};"
+		"snapshot:typeof snapshot==='string'?snapshot:JSON.stringify(snapshot),__tabs:await pullTabs()" + suffix + "};"
 }
 
 func (s *server) state(result map[string]any) map[string]any {
@@ -316,10 +353,41 @@ type tool struct {
 var tools = []tool{
 	{
 		name:        "ego_lite_start",
-		description: "Start or resume one isolated Ego Lite task space.",
+		description: "Start or resume one isolated Ego Lite task space. Returns spaceId, ownership and needsClaim.",
 		properties:  map[string]any{},
 		handler: func(s *server, _ map[string]string) (any, error) {
 			return s.start()
+		},
+	},
+	{
+		name:        "ego_lite_claim_space",
+		description: "Take over a task space that belongs to the user (the fix for EGO_TASK_SPACE_NAME_IN_USE).",
+		properties: map[string]any{
+			"spaceId": map[string]any{"type": "integer", "minimum": 1},
+		},
+		required: []string{"spaceId"},
+		handler: func(s *server, a map[string]string) (any, error) {
+			return s.claimSpace(a["spaceId"])
+		},
+	},
+	{
+		name:        "ego_lite_spaces",
+		description: "List task spaces with id, name and ownership so an existing one can be resumed.",
+		properties:  map[string]any{},
+		handler: func(s *server, _ map[string]string) (any, error) {
+			return s.spaces()
+		},
+	},
+	{
+		name: "ego_lite_box",
+		description: "Return the bounding box of one CSS/text selector (matched count, rect, visible). " +
+			"Use it before a coordinate click instead of guessing.",
+		properties: map[string]any{
+			"selector": map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		},
+		required: []string{"selector"},
+		handler: func(s *server, a map[string]string) (any, error) {
+			return s.box(a["selector"])
 		},
 	},
 	{
@@ -895,11 +963,17 @@ var tools = []tool{
 
 func (s *server) start() (any, error) {
 	if s.taskName != "" {
-		return map[string]any{"taskSpaceName": s.taskName, "status": "already-started", "page": "p1"}, nil
+		return map[string]any{
+			"taskSpaceName": s.taskName,
+			"status":        "already-started",
+			"page":          s.activePage(),
+			"ownership":     "agent",
+			"needsClaim":    false,
+		}, nil
 	}
 	name := fmt.Sprintf("dsh-ego-%d", time.Now().UnixNano())
 	source := "const task=await taskSpace(" + quote(name) + ");" +
-		"console.log(" + quote(resultMarker) + "+JSON.stringify({spaceId:task.spaceId}));"
+		"console.log(" + quote(resultMarker) + "+JSON.stringify({spaceId:task.spaceId,ownership:task.ownership}));"
 	payload, err := runner(source, 90*time.Second)
 	if err != nil {
 		return nil, err
@@ -908,10 +982,56 @@ func (s *server) start() (any, error) {
 	s.page = "p1"
 	s.lastTabs = nil
 	var space struct {
-		SpaceID json.RawMessage `json:"spaceId"`
+		SpaceID   json.RawMessage `json:"spaceId"`
+		Ownership string          `json:"ownership"`
 	}
 	_ = json.Unmarshal(payload, &space)
-	return map[string]any{"task": space, "page": "p1"}, nil
+	ownership := space.Ownership
+	if ownership == "" {
+		ownership = "agent"
+	}
+	return map[string]any{
+		"task":      space,
+		"page":      "p1",
+		"ownership": ownership,
+		"needsClaim": ownership != "agent",
+	}, nil
+}
+
+// claimSpace takes over a task space that belongs to the user, which is what
+// EGO_TASK_SPACE_NAME_IN_USE asks for.
+func (s *server) claimSpace(raw string) (any, error) {
+	id, err := intArg("spaceId", raw, 1, 1<<31-1)
+	if err != nil {
+		return nil, err
+	}
+	source := "const task=await claimTaskSpace(" + strconv.Itoa(id) + ");" +
+		"console.log(" + quote(resultMarker) + "+JSON.stringify({spaceId:task.spaceId,name:task.name,ownership:task.ownership}));"
+	payload, err := runner(source, 90*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var space struct {
+		SpaceID   json.RawMessage `json:"spaceId"`
+		Name      string          `json:"name"`
+		Ownership string          `json:"ownership"`
+	}
+	_ = json.Unmarshal(payload, &space)
+	if space.Name != "" {
+		s.taskName = space.Name
+		s.page = "p1"
+		s.lastTabs = nil
+	}
+	return map[string]any{"task": space, "page": s.activePage(), "ownership": space.Ownership}, nil
+}
+
+// spaces lists task spaces so a caller can find an existing one to resume.
+func (s *server) spaces() (any, error) {
+	value, err := s.run("const list=await listTaskSpaces();return list.map(s=>({id:s.id,name:s.name,ownership:s.ownership}));", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"spaces": value, "active": s.taskName}, nil
 }
 
 func (s *server) navigate(rawURL string) (any, error) {
@@ -940,7 +1060,15 @@ func (s *server) click(rawSelector string) (any, error) {
 		return nil, err
 	}
 	page := s.activePage()
-	body := s.pagePrefix() + "await page.click(" + quote(selector) + ");" + s.stateBody(page)
+	// Cheap liveness assertion: a click that changes neither URL nor visible text
+	// usually means the element was inside a cross-origin frame or blocked.
+	body := s.pagePrefix() +
+		"const beforeUrl=await page.url();" +
+		"const beforeText=await page.evaluate(()=>document.body.innerText.length);" +
+		"await page.click(" + quote(selector) + ");" +
+		"const afterUrl=await page.url();" +
+		"const afterText=await page.evaluate(()=>document.body.innerText.length);" +
+		s.stateBodyWith(page, "noVisibleChange:(beforeUrl===afterUrl&&Math.abs(afterText-beforeText)<20)")
 	return s.runState(body, 90*time.Second)
 }
 
@@ -970,6 +1098,31 @@ func (s *server) press(rawSelector, rawKey string) (any, error) {
 	page := s.activePage()
 	body := s.pagePrefix() + "await page.press(" + quote(selector) + "," + quote(key) + ");" + s.stateBody(page)
 	return s.runState(body, 90*time.Second)
+}
+
+func (s *server) box(rawSelector string) (any, error) {
+	selector, err := validateSelector(rawSelector)
+	if err != nil {
+		return nil, err
+	}
+	// Accept CSS or exact visible text; scroll into view before measuring so the
+	// rect can be used for a coordinate click.
+	fn := `(sel) => {
+		const walk = (root, out = []) => { for (const el of root.querySelectorAll('*')) { if (el.shadowRoot) walk(el.shadowRoot, out); out.push(el); } return out; };
+		let matched = [];
+		try { matched = [...document.querySelectorAll(sel)]; } catch (e) { matched = []; }
+		if (matched.length === 0) {
+			matched = walk(document).filter(e => (e.textContent || '').trim() === sel);
+		}
+		const visible = matched.filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+		const el = visible[0] || matched[0];
+		if (!el) return { matched: 0, visible: 0 };
+		el.scrollIntoView({ block: 'center', inline: 'center' });
+		const r = el.getBoundingClientRect();
+		return { matched: matched.length, visible: visible.length, tag: el.tagName.toLowerCase(),
+			rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) } };
+	}`
+	return s.run(s.pagePrefix()+"return await page.evaluate("+fn+","+quote(selector)+");", 30*time.Second)
 }
 
 func (s *server) hover(rawSelector string) (any, error) {
@@ -1507,7 +1660,14 @@ func (s *server) upload(rawSelector, rawPaths string) (any, error) {
 		return nil, errors.New("paths must contain at least one file")
 	}
 	encoded, _ := json.Marshal(paths)
-	body := s.pagePrefix() + "await page.setInputFiles(" + quote(selector) + "," + string(encoded) + ");" + s.stateBody(s.activePage())
+	// Verify the input really received the files: setInputFiles on a non-file
+	// selector can report success while nothing is attached.
+	body := s.pagePrefix() +
+		"await page.setInputFiles(" + quote(selector) + "," + string(encoded) + ");" +
+		"const attached=await page.evaluate(()=>[...document.querySelectorAll('input[type=file]')]" +
+		".reduce((n,i)=>n+(i.files?i.files.length:0),0));" +
+		"if(!attached) throw new Error('no file attached; selector may not be a file input');" +
+		s.stateBodyWith(s.activePage(), "attached:attached")
 	return s.runState(body, 120*time.Second)
 }
 
@@ -2199,12 +2359,10 @@ func writeResponse(w *bufio.Writer, resp *response) {
 }
 
 func main() {
-	s := &server{autoSwitch: true}
-	// Ego-native build: actions stay small by default, matching the official
-	// skill's "inspect, then act" flow. Callers can still ask for the tree.
-	if egoOnly {
-		s.brief = true
-	}
+	s := &server{autoSwitch: true, brief: true}
+	// Compact by default in both builds: ask for the tree with ego_lite_snapshot
+	// or ego_lite_output(brief:false). egoOnly still marks the Ego-native build.
+	_ = egoOnly
 	if path := strings.TrimSpace(os.Getenv("EGO_DSH_LOG")); path != "" {
 		if abs, err := filepath.Abs(path); err == nil {
 			s.logPath = abs
