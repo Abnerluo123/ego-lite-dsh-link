@@ -1,6 +1,6 @@
 # Packs full and Ego-native releases with complete, buildable source for both tags.
 param(
-    [string]$Version = "1.7.1",
+    [string]$Version = "1.7.2",
     [string]$OutDir = "$PSScriptRoot\dist",
     [string]$BinaryDir = ""
 )
@@ -21,6 +21,7 @@ foreach ($prefix in @("zero-ego", "zero-ego-lite")) {
 $commonFiles = @("AGENTS.md", "install.ps1", "install.sh", "build.ps1", "package.ps1", "go.mod", "LICENSE", "integration_feedback.py")
 $sourceFiles = @(Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Object { $_.Extension -in @(".go", ".js", ".mjs") })
 $docFiles = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "docs") -File -Recurse -ErrorAction Stop)
+$skillFiles = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot "skill") -File -Recurse -ErrorAction Stop)
 foreach ($variant in @("full", "lite")) {
     $stage = Join-Path ([System.IO.Path]::GetTempPath()) ("zero-ego-pack-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $stage | Out-Null
@@ -32,6 +33,14 @@ foreach ($variant in @("full", "lite")) {
             $docsRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "docs")).ProviderPath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
             $relative = $file.FullName.Substring($docsRoot.Length)
             $destination = Join-Path (Join-Path $stage "docs") $relative
+            $parent = Split-Path -Parent $destination
+            New-Item -ItemType Directory -Force -Path $parent | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $destination
+        }
+        foreach ($file in $skillFiles) {
+            $skillRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "skill")).ProviderPath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+            $relative = $file.FullName.Substring($skillRoot.Length)
+            $destination = Join-Path (Join-Path $stage "skill") $relative
             $parent = Split-Path -Parent $destination
             New-Item -ItemType Directory -Force -Path $parent | Out-Null
             Copy-Item -LiteralPath $file.FullName -Destination $destination

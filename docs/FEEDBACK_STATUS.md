@@ -1,5 +1,15 @@
 # Feedback status
 
+## 1.7.2: ship the MCP-first skill with the connector
+
+- The official `ego-browser` skill tells agents to run `ego-browser skill`, whose guide is about 23.7k characters (≈7.4k tokens) and leads them into the CLI, which the connector already replaces. The measured cost was real: agents read the guide, then hit CLI and sandbox retries.
+- The package now ships `skill/SKILL.md`: a short MCP-first skill under the same `ego-browser` name that points at the `ego_lite_*` tools and keeps the CLI as an explicit fallback only.
+- Both installers write it by default; `-NoSkill` / `--no-skill` skips it. An existing official text is kept beside it as `SKILL.official.md`, never discarded.
+- Ego Lite exposes its bundled skills through a read-only junction into its installation. The installer detects that reparse point, keeps the linked text, and replaces only the link with a real directory, so the skill stays maintainable; the junction target is untouched.
+- The server's MCP `instructions` string was shortened from about 640 to 430 characters, since the skill now carries the workflow.
+- Verified: the connector's release tests cover skill install, official backup, `-NoSkill`, junction replacement and untouched junction target; the installed profile, skill catalog and MCP instructions all pick up the new text on a live session.
+- `File.Replace` is denied on some sandboxed filesystems, so the profile write now falls back to verified copies instead of failing the install.
+
 ## 1.7.1: task-space tools work on the current Ego CLI
 
 - On ego lite 0.6.0.16 every task-space call (`start`, `spaces`, `claim_space`, `control_status`, `finish`, `run`) failed with `ReferenceError: await is not defined`. The generated wrapper opened with `const value=await(async()=>{…})();`, and ego-browser evaluates a stdin script as a plain script unless a top-level await is followed by an identifier, so `await` was bound as an identifier.

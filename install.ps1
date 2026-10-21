@@ -1,11 +1,14 @@
-# Installs the connector outside the DSH workspace and prints or updates its profile entry.
+# Installs the connector outside the DSH workspace, writes the MCP-first skill and
+# prints or updates the profile entry.
 [CmdletBinding()]
 param(
     [string]$EgoCli = "",
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "ego-dsh-link"),
     [string]$Binary = "",
-    [string]$Version = "1.7.1",
+    [string]$Version = "1.7.2",
     [ValidateSet("auto", "amd64", "arm64")][string]$Architecture = "auto",
+    [string]$SkillDir = $(if ($env:EGO_SKILL_DIR) { $env:EGO_SKILL_DIR } else { Join-Path (Join-Path $env:USERPROFILE ".agents\skills") "ego-browser" }),
+    [switch]$NoSkill,
     [switch]$ApplyProfile
 )
 
@@ -62,6 +65,50 @@ else {
     }
     if ((Get-FileHash -LiteralPath $target).Hash -ne $sourceHash) { throw "copy verification failed for $target" }
     Write-Host "installed: $target"
+}
+
+# The connector makes the CLI guide unnecessary, and that guide costs about 7k
+# tokens per agent that follows it. Install the short MCP-first skill under the
+# official name so agents read it instead, keeping the official text aside.
+$skillSource = Join-Path $PSScriptRoot "skill\SKILL.md"
+if (-not $NoSkill -and (Test-Path -LiteralPath $skillSource -PathType Leaf)) {
+    $SkillDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SkillDir)
+    $skillTarget = Join-Path $SkillDir "SKILL.md"
+    $officialCopy = Join-Path $SkillDir "SKILL.official.md"
+    # Ego Lite exposes its bundled skills through a junction into its installation,
+    # which is read-only for this user. Replace only the link, keeping its text.
+    if (Test-Path -LiteralPath $SkillDir) {
+        $skillItem = Get-Item -LiteralPath $SkillDir -Force
+        if ($skillItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            $officialText = $null
+            if (Test-Path -LiteralPath $skillTarget -PathType Leaf) { $officialText = [System.IO.File]::ReadAllText($skillTarget) }
+            [System.IO.Directory]::Delete($SkillDir, $false)
+            New-Item -ItemType Directory -Path $SkillDir | Out-Null
+            if ($null -ne $officialText) {
+                [System.IO.File]::WriteAllText($officialCopy, $officialText, [System.Text.UTF8Encoding]::new($false))
+                Write-Host "kept official skill: $officialCopy"
+            }
+            Write-Host "replaced read-only skill link with a local directory: $SkillDir"
+        }
+    }
+    New-Item -ItemType Directory -Force -Path $SkillDir | Out-Null
+    $newSkill = [System.IO.File]::ReadAllText($skillSource)
+    if (Test-Path -LiteralPath $skillTarget -PathType Leaf) {
+        $current = [System.IO.File]::ReadAllText($skillTarget)
+        if ($current -cne $newSkill -and -not (Test-Path -LiteralPath $officialCopy)) {
+            Copy-Item -LiteralPath $skillTarget -Destination $officialCopy
+            Write-Host "kept official skill: $officialCopy"
+        }
+    }
+    if (-not (Test-Path -LiteralPath $skillTarget) -or [System.IO.File]::ReadAllText($skillTarget) -cne $newSkill) {
+        $temp = "$skillTarget.tmp.$([guid]::NewGuid().ToString('N'))"
+        try {
+            [System.IO.File]::WriteAllText($temp, $newSkill, [System.Text.UTF8Encoding]::new($false))
+            Move-Item -LiteralPath $temp -Destination $skillTarget -Force
+        }
+        finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
+        Write-Host "installed skill: $skillTarget"
+    }
 }
 
 function Quote-Yaml([string]$Value) { return "'" + $Value.Replace("\", "/").Replace("'", "''") + "'" }
@@ -167,7 +214,17 @@ $temp = "$patch.tmp.$([guid]::NewGuid().ToString('N'))"
 try {
     [System.IO.File]::WriteAllText($temp, $updated, [System.Text.UTF8Encoding]::new($false))
     # File.Replace keeps the existing profile ACL and swaps the complete file atomically.
-    [System.IO.File]::Replace($temp, $patch, $backup)
+    try {
+        [System.IO.File]::Replace($temp, $patch, $backup)
+    }
+    catch [System.UnauthorizedAccessException] {
+        # Sandboxed filesystems can deny ReplaceFile; fall back to verified copies.
+        Copy-Item -LiteralPath $patch -Destination $backup -Force
+        Copy-Item -LiteralPath $temp -Destination $patch -Force
+        if ((Get-FileHash -LiteralPath $patch).Hash -ne (Get-FileHash -LiteralPath $temp).Hash) {
+            throw "profile write verification failed: $patch"
+        }
+    }
 }
 finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
 Write-Host "updated profile: $patch (backup: $backup)"

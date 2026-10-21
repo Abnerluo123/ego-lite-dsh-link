@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
 $testRoot = Join-Path $TempDir ("zero-ego-release-test-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 $ownedRoot = (Resolve-Path -LiteralPath $testRoot).ProviderPath
-$envKeys = @("DSH_PROFILE_DIR", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "GOCACHE", "GOTMPDIR", "GOOS", "GOARCH", "CGO_ENABLED")
+$envKeys = @("DSH_PROFILE_DIR", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "GOCACHE", "GOTMPDIR", "GOOS", "GOARCH", "CGO_ENABLED", "EGO_SKILL_DIR")
 $saved = @{}
 foreach ($key in $envKeys) { $saved[$key] = [Environment]::GetEnvironmentVariable($key, "Process") }
 try {
@@ -22,6 +22,9 @@ try {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $fixture
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "docs") -Destination $fixture -Recurse
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "skill") -Destination $fixture -Recurse
+    $skillDir = Join-Path $testRoot "skills/ego-browser"
+    $env:EGO_SKILL_DIR = $skillDir
     foreach ($file in Get-ChildItem -LiteralPath $PSScriptRoot -File | Where-Object { $_.Extension -in @(".go", ".js", ".mjs") }) { Copy-Item -LiteralPath $file.FullName -Destination $fixture }
     Put (Join-Path $fixture "future_source_test.go") "package main`nvar futurePackagedSource = true`n"
     Put (Join-Path $fixture "future_browser_helper.js") "// future helper inclusion sentinel`n"
@@ -92,6 +95,30 @@ try {
     & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -Architecture arm64 -ApplyProfile
     $addedFields = ReadText $patch
     Assert ($addedFields.Contains("        command:") -and $addedFields.Contains("        cwd:") -and $addedFields.Contains("        env:`n          EGO_BROWSER_CLI:")) "missing config fields inserted"
+    $installedSkill = Join-Path $skillDir "SKILL.md"
+    Assert (Test-Path -LiteralPath $installedSkill) "MCP-first skill installed"
+    Assert ((ReadText $installedSkill) -ceq (ReadText (Join-Path $fixture "skill/SKILL.md"))) "installed skill matches the package copy"
+    Assert ((ReadText $installedSkill) -notmatch 'ego-browser nodejs') "installed skill does not push the CLI path"
+    Put (Join-Path $skillDir "SKILL.md") "official skill text"
+    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -ApplyProfile
+    Assert ((ReadText $installedSkill) -ceq (ReadText (Join-Path $fixture "skill/SKILL.md"))) "reinstall restores the MCP-first skill"
+    Assert ((ReadText (Join-Path $skillDir "SKILL.official.md")) -eq "official skill text") "official skill preserved once"
+    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -NoSkill
+    Assert ((ReadText $installedSkill) -ceq (ReadText (Join-Path $fixture "skill/SKILL.md"))) "-NoSkill leaves the skill untouched"
+    # Ego Lite ships its skill behind a read-only junction; the installer must replace the link.
+    $linkTarget = Join-Path $testRoot "ego-skills-target"
+    $linkPath = Join-Path $testRoot "ego-skills-link"
+    New-Item -ItemType Directory -Path $linkTarget | Out-Null
+    Put (Join-Path $linkTarget "SKILL.md") "bundled official skill"
+    & cmd /c mklink /J "$linkPath" "$linkTarget" | Out-Null
+    if (-not ((Get-Item -LiteralPath $linkPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) { throw "junction fixture not created" }
+    $env:EGO_SKILL_DIR = $linkPath
+    & (Join-Path $fixture "install.ps1") -EgoCli $fakeCli -InstallDir $installDir -ApplyProfile
+    Assert (-not ((Get-Item -LiteralPath $linkPath -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) "read-only skill link replaced with a real directory"
+    Assert ((ReadText (Join-Path $linkPath "SKILL.md")) -ceq (ReadText (Join-Path $fixture "skill/SKILL.md"))) "MCP-first skill written after unlinking"
+    Assert ((ReadText (Join-Path $linkPath "SKILL.official.md")) -eq "bundled official skill") "official text kept from the link"
+    Assert ((ReadText (Join-Path $linkTarget "SKILL.md")) -eq "bundled official skill") "junction target left untouched"
+    $env:EGO_SKILL_DIR = $skillDir
     $ambiguous = "- insert:`n    - id: mcp-ego-lite`n      config:`n        command: one`n    - id: mcp-ego-lite`n      config:`n        command: two`n"
     Put $patch $ambiguous
     $rejected = $false
@@ -101,6 +128,7 @@ try {
     foreach ($script in @("install.ps1", "install.sh")) {
         Assert (-not ((ReadText (Join-Path $fixture $script)) -match 'Stop-Process|Get-Process|\bpkill\b|\bkillall\b')) "installer has no process-wide kill commands"
     }
+    $installedSkill = Join-Path $skillDir "SKILL.md"
     Write-Host "PASS: Windows installer isolation, backup, upgrade, architecture and profile preservation"
     if ($BashExe) {
         $savedPath = $env:PATH
@@ -129,6 +157,7 @@ try {
         Assert (Test-Path -LiteralPath (Join-Path $extracted "build.ps1")) "build script included"
         Assert (Test-Path -LiteralPath (Join-Path $extracted "integration_feedback.py")) "integration feedback source included"
         Assert (Test-Path -LiteralPath (Join-Path $extracted "docs/AGENT_GUIDE.md")) "docs tree included"
+        Assert (Test-Path -LiteralPath (Join-Path $extracted "skill/SKILL.md")) "MCP-first skill included in archive"
         Push-Location $extracted
         try {
             & $GoExe test -count=1 ./...

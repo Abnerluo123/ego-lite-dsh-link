@@ -4,20 +4,23 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ego_cli=""
 apply=0
-version="1.7.1"
+version="1.7.2"
 architecture="auto"
 dest_dir="${HOME}/.local/share/zero-ego"
+skill_dir="${EGO_SKILL_DIR:-$HOME/.agents/skills/ego-browser}"
+install_skill=1
 src=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --ego|--version|--arch|--install-dir|--binary)
+    --ego|--version|--arch|--install-dir|--binary|--skill-dir)
       [ $# -ge 2 ] || { echo "missing value for $1" >&2; exit 2; }
       case "$1" in
         --ego) ego_cli="$2" ;; --version) version="$2" ;; --arch) architecture="$2" ;;
-        --install-dir) dest_dir="$2" ;; --binary) src="$2" ;;
+        --install-dir) dest_dir="$2" ;; --binary) src="$2" ;; --skill-dir) skill_dir="$2" ;;
       esac
       shift 2 ;;
     --apply) apply=1; shift ;;
+    --no-skill) install_skill=0; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -58,6 +61,38 @@ if [ ! -f "$dest" ] || ! cmp -s "$src" "$dest"; then
 fi
 echo "installed: $dest"
 echo "ego cli  : $ego_cli"
+
+# The MCP tools make the large CLI guide unnecessary; install the short MCP-first
+# skill under the official name, keeping the official text aside.
+skill_src="$here/skill/SKILL.md"
+if [ "$install_skill" -eq 1 ] && [ -f "$skill_src" ]; then
+  # Ego Lite exposes bundled skills through a link into its installation, which is
+  # read-only for this user. Replace only the link, keeping its text.
+  if [ -L "$skill_dir" ]; then
+    official_text=""
+    [ -f "$skill_dir/SKILL.md" ] && official_text="$(cat "$skill_dir/SKILL.md")"
+    unlink "$skill_dir" 2>/dev/null || rmdir "$skill_dir"
+    mkdir -p "$skill_dir"
+    if [ -n "$official_text" ]; then
+      printf '%s\n' "$official_text" > "$skill_dir/SKILL.official.md"
+      echo "kept official skill: $skill_dir/SKILL.official.md"
+    fi
+    echo "replaced read-only skill link with a local directory: $skill_dir"
+  fi
+  mkdir -p "$skill_dir"
+  skill_target="$skill_dir/SKILL.md"
+  official_copy="$skill_dir/SKILL.official.md"
+  if [ -f "$skill_target" ] && ! cmp -s "$skill_src" "$skill_target" && [ ! -f "$official_copy" ]; then
+    cp -p "$skill_target" "$official_copy"
+    echo "kept official skill: $official_copy"
+  fi
+  if ! cmp -s "$skill_src" "$skill_target"; then
+    skill_tmp="$(mktemp "$skill_dir/.skill.XXXXXX")"
+    cp "$skill_src" "$skill_tmp"
+    mv -f "$skill_tmp" "$skill_target"
+    echo "installed skill: $skill_target"
+  fi
+fi
 quote_yaml() { local value="${1//\'/\'\'}"; printf "'%s'" "$value"; }
 command_value="$(quote_yaml "$dest")"
 cwd_value="$(quote_yaml "$dest_dir")"
