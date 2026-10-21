@@ -5,7 +5,7 @@ param(
     [string]$EgoCli = "",
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "ego-dsh-link"),
     [string]$Binary = "",
-    [string]$Version = "1.7.2",
+    [string]$Version = "1.7.3",
     [ValidateSet("auto", "amd64", "arm64")][string]$Architecture = "auto",
     [string]$SkillDir = $(if ($env:EGO_SKILL_DIR) { $env:EGO_SKILL_DIR } else { Join-Path (Join-Path $env:USERPROFILE ".agents\skills") "ego-browser" }),
     [switch]$NoSkill,

@@ -24,7 +24,7 @@ import (
 
 const (
 	serverName    = "ego-browser-dsl"
-	serverVersion = "1.7.2"
+	serverVersion = "1.7.3"
 	resultMarker  = "__EGO_DSH_RESULT__"
 	maxSnapshot   = 24000
 	maxText       = 12000
@@ -358,9 +358,9 @@ var tools = []tool{
 	},
 	{
 		name:        "ego_lite_claim_space",
-		description: "Take over a task space that belongs to the user (the fix for EGO_TASK_SPACE_NAME_IN_USE).",
+		description: "Take over a task space that belongs to the user (the fix for EGO_TASK_SPACE_NAME_IN_USE). spaceId accepts an id or an exact space name; ids are never reused, so read them from ego_lite_spaces instead of guessing.",
 		properties: map[string]any{
-			"spaceId": map[string]any{"type": "integer", "minimum": 1},
+			"spaceId": map[string]any{"type": []string{"integer", "string"}, "description": "space id or exact space name"},
 		},
 		required: []string{"spaceId"},
 		handler: func(s *server, a map[string]string) (any, error) {
@@ -948,10 +948,10 @@ var tools = []tool{
 	},
 	{
 		name:        "ego_lite_finish",
-		description: "REQUIRED final step after successful work: release this task's agent control and verify it. Default closes agent pages; keep=all retains result pages; keep may be comma-separated labels. Optional spaceId targets one known agent-owned space after restart. Never use it to clean other agents.",
+		description: "REQUIRED final step after successful work: release this task's agent control and verify it. Default closes agent pages; keep=all retains result pages; keep may be comma-separated labels. Optional spaceId accepts an id or an exact space name; omit it for the current space. Space ids are never reused, so never guess one: an unknown id is rejected with the ids that exist. Never use it to clean other agents.",
 		properties: map[string]any{
 			"keep":    map[string]any{"type": "string", "maxLength": 200},
-			"spaceId": map[string]any{"type": "integer", "minimum": 1},
+			"spaceId": map[string]any{"type": []string{"integer", "string"}, "description": "space id or exact space name"},
 		},
 		handler: func(s *server, a map[string]string) (any, error) {
 			return s.completeSpace(a["spaceId"], a["keep"])
@@ -972,9 +972,12 @@ func (s *server) start() (any, error) {
 }
 
 func (s *server) claimSpace(raw string) (any, error) {
-	id, err := intArg("spaceId", raw, 1, 1<<31-1)
+	id, err := s.resolveSpace(raw)
 	if err != nil {
 		return nil, err
+	}
+	if id == 0 {
+		return nil, errors.New("spaceId is required to claim a space; call ego_lite_spaces to see the ids")
 	}
 	value, err := runStandalone("const task=await claimTaskSpace("+strconv.Itoa(id)+");return {spaceId:task.spaceId,name:task.name,ownership:task.ownership,tabs:(await task.tabs()).map(t=>({label:t.label,title:t.title,url:t.url,active:t.active,openedBy:t.openedBy}))};", 90*time.Second)
 	if err != nil {
@@ -984,7 +987,7 @@ func (s *server) claimSpace(raw string) (any, error) {
 }
 
 func (s *server) spaces() (any, error) {
-	return runStandalone("const list=await listTaskSpaces();return {spaces:list.map(s=>({id:s.id,name:s.name,ownership:s.ownership})),active:"+quote(s.taskName)+"};", 30*time.Second)
+	return runStandalone("const list=await listTaskSpaces();return {spaces:list.map(s=>({id:s.id,name:s.name,ownership:s.ownership})),active:"+quote(s.taskName)+",currentSpaceId:"+strconv.Itoa(s.spaceID)+"};", 30*time.Second)
 }
 
 func (s *server) navigate(rawURL string) (any, error) {
@@ -1144,8 +1147,12 @@ func (s *server) pagePrefix() string {
 }
 
 func (s *server) run(body string, timeout time.Duration) (any, error) {
+	// A missing task is an ordinary first call, not an error: start one so agents
+	// do not have to guess the call order.
 	if s.taskName == "" {
-		return nil, errors.New("start an Ego Lite browser task first")
+		if _, err := s.start(); err != nil {
+			return nil, err
+		}
 	}
 	payload, err := runner(s.taskSource(body), timeout)
 	if err != nil {

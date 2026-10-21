@@ -10,6 +10,42 @@ import (
 	"time"
 )
 
+// Agents used to guess space ids, which produced "task space not found: 1" and
+// retries. A wrong id must name the ids that actually exist.
+func TestResolveSpaceRejectsUnknownIdWithHint(t *testing.T) {
+	withFakeRunner(t, func(_ string, _ time.Duration) (json.RawMessage, error) {
+		return json.RawMessage(`[{"id":12,"name":"dsh-ego-12","ownership":"agent"}]`), nil
+	})
+	s := &server{spaceID: 12, taskName: "dsh-ego-12"}
+	if _, err := s.resolveSpace("1"); err == nil ||
+		!strings.Contains(err.Error(), "space 1 does not exist") ||
+		!strings.Contains(err.Error(), "current space is 12") ||
+		!strings.Contains(err.Error(), "ego_lite_spaces") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id, err := s.resolveSpace("dsh-ego-12"); err != nil || id != 12 {
+		t.Fatalf("name lookup failed: id=%d err=%v", id, err)
+	}
+	if id, err := s.resolveSpace(""); err != nil || id != 12 {
+		t.Fatalf("empty id should resolve to the current space: id=%d err=%v", id, err)
+	}
+	if _, err := s.resolveSpace("nope"); err == nil || !strings.Contains(err.Error(), "no space is named") {
+		t.Fatalf("unknown name should fail clearly: %v", err)
+	}
+}
+
+// When the registry cannot be read, a numeric id is still used: the finish
+// receipt validates it, and blocking here would break a working finish.
+func TestResolveSpaceFallsBackWhenRegistryUnavailable(t *testing.T) {
+	withFakeRunner(t, func(_ string, _ time.Duration) (json.RawMessage, error) {
+		return nil, errors.New("registry down")
+	})
+	s := &server{}
+	if id, err := s.resolveSpace("9"); err != nil || id != 9 {
+		t.Fatalf("expected fallback to 9, got id=%d err=%v", id, err)
+	}
+}
+
 func TestFinishKeepAllVerifiesThenClearsState(t *testing.T) {
 	var source string
 	withFakeRunner(t, func(script string, _ time.Duration) (json.RawMessage, error) {

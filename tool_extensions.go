@@ -120,7 +120,7 @@ func init() {
 		}
 	}
 	tools = append(tools,
-		tool{name: "ego_lite_control_status", description: "Check whether a specific task space still has agent ownership; list remaining agent spaces without claiming, closing or creating one. Use after finish or connector restart. This is registry status, not a global browser exit guarantee.", properties: map[string]any{"spaceId": map[string]any{"type": "integer", "minimum": 1}}, handler: func(s *server, a map[string]string) (any, error) { return s.controlStatus(a["spaceId"]) }},
+		tool{name: "ego_lite_control_status", description: "Check whether a task space still has agent ownership; list remaining agent spaces without claiming, closing or creating one. spaceId is optional and accepts an id or exact name; omit it for the current (or last finished) space. Ids are never reused, so never guess one. This is registry status, not a global browser exit guarantee.", properties: map[string]any{"spaceId": map[string]any{"type": []string{"integer", "string"}, "description": "space id or exact space name"}}, handler: func(s *server, a map[string]string) (any, error) { return s.controlStatus(a["spaceId"]) }},
 		tool{name: "ego_lite_frames", description: "List frame ids, names, URLs and parents. Use ids for frame evaluate/filtering; native snapshot refs remain preferred for actions in out-of-process frames.", properties: map[string]any{}, handler: func(s *server, _ map[string]string) (any, error) {
 			return s.run(s.pagePrefix()+"return await __ego.frames(page);", 30*time.Second)
 		}},

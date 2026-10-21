@@ -166,10 +166,26 @@ func TestNavigateRejectsBadURLWithoutRunningCLI(t *testing.T) {
 	}
 }
 
-func TestSnapshotWithoutTask(t *testing.T) {
+// A first browser call must not fail with "start a task first": the snapshot
+// auto-starts one, which removes a whole class of agent retries.
+func TestSnapshotWithoutTaskStartsOne(t *testing.T) {
+	var scripts []string
+	withFakeRunner(t, func(script string, _ time.Duration) (json.RawMessage, error) {
+		scripts = append(scripts, script)
+		if strings.Contains(script, "taskSpace(") {
+			return json.RawMessage(`{"spaceId":11,"name":"auto","ownership":"agent","tabs":[{"label":"p1","active":true}]}`), nil
+		}
+		return json.RawMessage(`{"page":"p1","url":"about:blank","title":"","snapshot":"root"}`), nil
+	})
 	s := &server{}
-	if _, err := s.snapshot(); err == nil || !strings.Contains(err.Error(), "start an Ego Lite browser task first") {
-		t.Fatalf("unexpected error: %v", err)
+	if _, err := s.snapshot(); err != nil {
+		t.Fatalf("snapshot should start a space: %v", err)
+	}
+	if s.spaceID != 11 {
+		t.Fatalf("expected the started space id, got %d", s.spaceID)
+	}
+	if len(scripts) < 2 {
+		t.Fatalf("expected a start call before the snapshot, got %d calls", len(scripts))
 	}
 }
 

@@ -52,12 +52,93 @@ func parseKeep(raw string) (string, error) {
 	data, _ := json.Marshal(labels)
 	return string(data), nil
 }
+// spaceSummary renders the browser registry so a stale or guessed identifier
+// can be rejected with the identifiers that actually exist.
+func spaceSummary(entries []map[string]any, current int, currentName string) string {
+	var agentIDs []string
+	for _, entry := range entries {
+		if entry["ownership"] == "agent" {
+			agentIDs = append(agentIDs, fmt.Sprintf("%v (%v)", entry["id"], entry["name"]))
+		}
+	}
+	parts := []string{}
+	if current > 0 {
+		if currentName != "" {
+			parts = append(parts, fmt.Sprintf("current space is %d (%s)", current, currentName))
+		} else {
+			parts = append(parts, fmt.Sprintf("current space is %d", current))
+		}
+	}
+	if len(agentIDs) > 0 {
+		parts = append(parts, "agent spaces: "+strings.Join(agentIDs, ", "))
+	} else {
+		parts = append(parts, "no agent spaces exist")
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (s *server) knownSpaces() ([]map[string]any, error) {
+	value, err := runStandalone("const list=await listTaskSpaces();return list.map(s=>({id:s.id,name:s.name,ownership:s.ownership}));", 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := value.([]any)
+	if !ok {
+		return nil, errors.New("invalid space registry response")
+	}
+	entries := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if entry, ok := item.(map[string]any); ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+// resolveSpace accepts an id, an exact space name, or nothing for the current
+// space. Unknown ids are rejected with the ids that actually exist; when the
+// registry cannot be read the id is used as given, because the caller's own
+// receipt still validates the result.
+func (s *server) resolveSpace(raw string) (int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return s.spaceID, nil
+	}
+	numeric, convErr := strconv.Atoi(value)
+	if convErr == nil && numeric < 1 {
+		return 0, fmt.Errorf("spaceId must be 1 or greater, got %d", numeric)
+	}
+	entries, listErr := s.knownSpaces()
+	if listErr != nil {
+		if convErr == nil {
+			return numeric, nil
+		}
+		return 0, listErr
+	}
+	if convErr == nil {
+		for _, entry := range entries {
+			if id, ok := entry["id"].(float64); ok && int(id) == numeric {
+				return numeric, nil
+			}
+		}
+		return 0, fmt.Errorf("space %d does not exist (ids are never reused); %s; omit spaceId to address the current space, or call ego_lite_spaces", numeric, spaceSummary(entries, s.spaceID, s.taskName))
+	}
+	for _, entry := range entries {
+		if name, _ := entry["name"].(string); name == value {
+			if id, ok := entry["id"].(float64); ok {
+				return int(id), nil
+			}
+		}
+	}
+	return 0, fmt.Errorf("no space is named %q; %s", value, spaceSummary(entries, s.spaceID, s.taskName))
+}
+
 func (s *server) completeSpace(rawID, keep string) (any, error) {
 	id := s.spaceID
 	explicit := strings.TrimSpace(rawID) != ""
 	if explicit {
 		var err error
-		id, err = intArg("spaceId", rawID, 1, 1<<31-1)
+		id, err = s.resolveSpace(rawID)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +182,7 @@ func (s *server) controlStatus(rawID string) (any, error) {
 	id := s.spaceID
 	if rawID != "" {
 		var err error
-		id, err = intArg("spaceId", rawID, 1, 1<<31-1)
+		id, err = s.resolveSpace(rawID)
 		if err != nil {
 			return nil, err
 		}

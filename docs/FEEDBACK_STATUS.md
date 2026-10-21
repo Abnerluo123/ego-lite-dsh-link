@@ -1,5 +1,14 @@
 # Feedback status
 
+## 1.7.3: stop task-space discovery from costing retries
+
+- Agents guessed `spaceId` values (`1`, `2`, ...) and got the raw `Error: task space not found: 1`, then retried. Ego space ids come from a monotonic registry and are never reused, so a guessed id is always wrong.
+- `spaceId` now accepts an id **or an exact space name**, and is optional everywhere; omitting it addresses the current space (or, for `control_status`, the last finished one).
+- An unknown id is rejected before any browser call, with the ids that actually exist: `space 1 does not exist (ids are never reused); current space is 12 (dsh-ego-…); agent spaces: 12 (dsh-ego-…); omit spaceId to address the current space, or call ego_lite_spaces`.
+- A browser call before `start` no longer fails with "start an Ego Lite browser task first": the first snapshot/navigate/click starts the space itself.
+- `ego_lite_control_status` no longer needs a started task, and unknown-name input gets the same inventory hint.
+- Tool schemas and descriptions now say the field is optional, accepts a name, and must never be guessed.
+
 ## 1.7.2: ship the MCP-first skill with the connector
 
 - The official `ego-browser` skill tells agents to run `ego-browser skill`, whose guide is about 23.7k characters (≈7.4k tokens) and leads them into the CLI, which the connector already replaces. The measured cost was real: agents read the guide, then hit CLI and sandbox retries.
